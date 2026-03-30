@@ -35,7 +35,7 @@ h1 {
 
 .query-form {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0.75rem;
   margin-top: 1rem;
 
@@ -151,6 +151,23 @@ tbody tr:hover {
 .empty {
   padding: 1rem;
   color: var(--ink-soft);
+}
+
+.secondary-btn {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink-soft);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 0.35rem 0.6rem;
+  cursor: pointer;
+}
+
+.secondary-btn:disabled {
+  cursor: wait;
+  opacity: 0.7;
 }
 
 @keyframes reveal {

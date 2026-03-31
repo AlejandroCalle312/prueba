@@ -45,6 +45,7 @@ jobs:
             frontend/.env.example
             README.md
             .gitignore
+            .deployment
 
   deploy:
     runs-on: ubuntu-latest
@@ -64,6 +65,25 @@ jobs:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_9E7ECEE4C39E47E783ED2F35B4FD1C5F }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_2A12DD0905804C33B0A47FC3196CF270 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_82E9F069707F4BD9BBF5A44848164D6E }}
+
+      - name: Enforce Node runtime and disable Oryx remote build
+        run: |
+          RG=$(az webapp list --query "[?name=='api-srf-prod-axsa'].resourceGroup | [0]" -o tsv)
+          if [ -z "$RG" ]; then
+            echo "Could not resolve resource group for app: api-srf-prod-axsa"
+            exit 1
+          fi
+
+          az webapp config set \
+            --resource-group "$RG" \
+            --name api-srf-prod-axsa \
+            --linux-fx-version "NODE|20-lts" \
+            --startup-file "node backend/server.js"
+
+          az webapp config appsettings set \
+            --resource-group "$RG" \
+            --name api-srf-prod-axsa \
+            --settings SCM_DO_BUILD_DURING_DEPLOYMENT=false ENABLE_ORYX_BUILD=false WEBSITE_RUN_FROM_PACKAGE=1
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3

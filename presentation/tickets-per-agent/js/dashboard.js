@@ -1,6 +1,9 @@
 'use strict';
 
-const API_BASE = window.APP_CONFIG?.apiBase ?? 'https://api-srf-axsa.azurewebsites.net';
+const configuredApiBase = (window.APP_CONFIG?.apiBase || '').trim();
+const API_BASE = configuredApiBase && !/^%%.+%%$/.test(configuredApiBase)
+  ? configuredApiBase.replace(/\/$/, '')
+  : window.location.origin;
 
 const state = {
   rows: [],

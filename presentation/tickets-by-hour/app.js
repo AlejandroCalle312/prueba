@@ -17,7 +17,10 @@
 
 /* ── Configuration ─────────────────────────────────────────────────────────── */
 
-const API_BASE = window.APP_CONFIG?.apiBase ?? 'https://api-srf-axsa.azurewebsites.net';
+const configuredApiBase = (window.APP_CONFIG?.apiBase || '').trim();
+const API_BASE = configuredApiBase && !/^%%.+%%$/.test(configuredApiBase)
+  ? configuredApiBase.replace(/\/$/, '')
+  : window.location.origin;
 const DEBOUNCE_MS = 400;
 const MAX_MONTHS = 12;
 const PRIORITY_ASSIGNMENT_GROUP_KEYWORD = 'service management center';

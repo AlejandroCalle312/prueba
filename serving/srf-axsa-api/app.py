@@ -50,6 +50,7 @@ from typing import Annotated
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from databricks.sql.exc import RequestError
 
@@ -480,4 +481,11 @@ async def invalidate_cache(
 
     get_client().invalidate_cache()
     return {"status": "cache cleared"}
+
+
+# Serve the presentation assets from the same domain in production.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_PRESENTATION_ROOT = _REPO_ROOT / "presentation"
+if _PRESENTATION_ROOT.exists():
+    app.mount("/", StaticFiles(directory=str(_PRESENTATION_ROOT), html=True), name="presentation")
 

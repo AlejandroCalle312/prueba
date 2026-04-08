@@ -1,0 +1,83 @@
+:root {
+  --global-nav-height: 52px;
+}
+
+.global-nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--global-nav-height);
+  background: linear-gradient(90deg, #0a4e85 0%, #0b6fbf 55%, #1189d6 100%);
+  color: #ffffff;
+  z-index: 1200;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 3px 14px rgba(8, 43, 72, 0.25);
+}
+
+.global-nav__inner {
+  height: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.global-nav__brand {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.global-nav__links {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.global-nav__links a {
+  color: #ffffff;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.global-nav__links a:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.global-nav__links a.is-active {
+  background: #ffffff;
+  color: #0a4e85;
+}
+
+body {
+  padding-top: var(--global-nav-height);
+}
+
+.app-header {
+  top: var(--global-nav-height);
+}
+
+.sidebar {
+  top: calc(var(--global-nav-height) + 65px);
+  height: calc(100vh - (var(--global-nav-height) + 65px));
+}
+
+@media (max-width: 900px) {
+  .global-nav__brand {
+    display: none;
+  }
+}

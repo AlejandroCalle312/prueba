@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Ticket lifecycle analytics with assignment-group time segmentation" />
+  <title>Ticket Lifecycle - SRF-AXSA Analytics</title>
+  <link rel="stylesheet" href="../shared/nav.css" />
+  <link rel="stylesheet" href="styles.css" />
+  <script>
+    window.APP_CONFIG = { apiBase: '%%API_BASE_URL%%' };
+  </script>
+  <script src="app-config.local.js"></script>
+</head>
+<body>
+  <a href="#main" class="skip-link">Skip to main content</a>
+
+  <main class="page" id="main">
+    <header class="header">
+      <div>
+        <h1>Ticket Lifecycle</h1>
+        <p>Closed and resolved tickets with total open time and assignment-group segmentation.</p>
+      </div>
+      <button id="btn-clear" type="button" class="btn btn-secondary">Clear all selections</button>
+    </header>
+
+    <section class="layout">
+      <aside class="filters" aria-label="Ticket lifecycle filters">
+        <section class="filter-card">
+          <h2>Months</h2>
+          <p class="hint">Newest month first. Select one or multiple months.</p>
+          <div id="months-list" class="menu-list" role="listbox" aria-multiselectable="true"></div>
+        </section>
+
+        <section class="filter-card">
+          <h2>Assignment Group</h2>
+          <input
+            id="group-search"
+            class="search"
+            type="search"
+            placeholder="Search assignment group"
+            aria-label="Search assignment group"
+          />
+          <p id="group-selected" class="hint" aria-live="polite">Selected: none</p>
+          <div id="groups-list" class="menu-list" role="listbox" aria-label="Assignment groups"></div>
+        </section>
+
+        <section class="filter-card">
+          <h2>Tickets</h2>
+          <input
+            id="ticket-search"
+            class="search"
+            type="search"
+            placeholder="Search by ticket number or key"
+            aria-label="Search by ticket number"
+          />
+          <p id="tickets-meta" class="hint" aria-live="polite"></p>
+          <div id="tickets-list" class="menu-list tickets" role="listbox" aria-label="Tickets list"></div>
+        </section>
+      </aside>
+
+      <section class="content" aria-live="polite">
+        <article class="card metrics">
+          <div>
+            <p class="label">Total time open</p>
+            <p id="metric-total" class="value">-</p>
+          </div>
+          <div>
+            <p class="label">Ticket status</p>
+            <p id="metric-status" class="value-sm">-</p>
+          </div>
+          <div>
+            <p class="label">Transition source</p>
+            <p id="metric-source" class="value-sm">-</p>
+          </div>
+        </article>
+
+        <article class="card">
+          <h2>SLA</h2>
+          <div id="sla-empty" class="empty">Select a ticket to view SLA target and balance.</div>
+          <div id="sla-content" class="sla-box hidden">
+            <div class="sla-row sla-link-row">
+              <span>Ticket URL</span>
+              <a id="sla-ticket-link" class="sla-ticket-link" href="#" target="_blank" rel="noopener noreferrer">Open in Jira</a>
+            </div>
+            <div class="sla-row">
+              <span>SLA Target</span>
+              <strong id="sla-target">-</strong>
+            </div>
+            <div class="sla-row">
+              <span>Priority at closure</span>
+              <strong id="sla-priority">-</strong>
+            </div>
+            <div class="sla-row">
+              <span>SLA Balance</span>
+              <strong id="sla-balance" class="sla-badge">-</strong>
+            </div>
+          </div>
+        </article>
+
+        <article class="card">
+          <h2>Time per Assignment Group</h2>
+          <div id="groups-duration-empty" class="empty">Select a ticket to see segmented durations.</div>
+          <table id="groups-duration-table" class="table hidden">
+            <thead>
+              <tr>
+                <th>Assignment Group</th>
+                <th>Duration</th>
+                <th>Share</th>
+              </tr>
+            </thead>
+            <tbody id="groups-duration-body"></tbody>
+          </table>
+          <div id="groups-total" class="total-wrap hidden" aria-live="polite">
+            <div class="total-head">
+              <span>Total lifecycle</span>
+              <strong id="groups-total-label">-</strong>
+            </div>
+            <div class="total-bar" role="img" aria-label="Total lifecycle time">
+              <div id="groups-total-fill" class="total-fill"></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="card">
+          <h2>Transition Timeline</h2>
+          <div id="timeline-empty" class="empty">No ticket selected.</div>
+          <ul id="timeline-list" class="timeline hidden"></ul>
+        </article>
+      </section>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+  <script src="../shared/nav.js"></script>
+</body>
+</html>

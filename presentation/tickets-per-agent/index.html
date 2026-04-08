@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tickets per Agent - Onsite Baden</title>
+  <link rel="stylesheet" href="shared/nav.css" />
+  <link rel="stylesheet" href="styles.css" />
+  <script>
+    window.APP_CONFIG = { apiBase: '%%API_BASE_URL%%' };
+  </script>
+  <script src="app-config.local.js"></script>
+</head>
+<body>
+  <main class="page">
+    <header class="header">
+      <div>
+        <h1>Tickets per Agent</h1>
+      </div>
+      <div id="total-pill" class="total-pill">Total issues: --</div>
+    </header>
+
+    <section class="filters">
+      <div class="filter-actions">
+        <button id="clear-filters-btn" type="button" class="clear-filters-btn">Clear all selections</button>
+      </div>
+
+      <div class="filter">
+        <label>Assignment Group</label>
+        <div class="multi-dropdown" data-filter-dropdown="assignment-group">
+          <button id="assignment-group-filter-toggle" type="button" class="multi-dropdown-toggle" aria-haspopup="true" aria-expanded="false">
+            <span id="assignment-group-filter-summary" class="filter-summary">All assignment groups</span>
+            <span class="multi-dropdown-caret" aria-hidden="true">v</span>
+          </button>
+          <div id="assignment-group-filter-list" class="multi-dropdown-menu" role="group" aria-label="Assignment group multi-select" hidden></div>
+        </div>
+      </div>
+
+      <div class="filter">
+        <label>Month</label>
+        <div class="multi-dropdown" data-filter-dropdown="month">
+          <button id="month-filter-toggle" type="button" class="multi-dropdown-toggle" aria-haspopup="true" aria-expanded="false">
+            <span id="month-filter-summary" class="filter-summary">All months</span>
+            <span class="multi-dropdown-caret" aria-hidden="true">v</span>
+          </button>
+          <div id="month-filter-list" class="multi-dropdown-menu" role="group" aria-label="Month multi-select" hidden></div>
+        </div>
+      </div>
+
+      <div class="filter">
+        <label>Assignee</label>
+        <div class="multi-dropdown" data-filter-dropdown="assignee">
+          <button id="assignee-filter-toggle" type="button" class="multi-dropdown-toggle" aria-haspopup="true" aria-expanded="false">
+            <span id="assignee-filter-summary" class="filter-summary">All assignees</span>
+            <span class="multi-dropdown-caret" aria-hidden="true">v</span>
+          </button>
+          <div id="assignee-filter-list" class="multi-dropdown-menu" role="group" aria-label="Assignee multi-select" hidden></div>
+        </div>
+      </div>
+
+      <div class="filter">
+        <label>Status</label>
+        <div class="multi-dropdown" data-filter-dropdown="status">
+          <button id="status-filter-toggle" type="button" class="multi-dropdown-toggle" aria-haspopup="true" aria-expanded="false">
+            <span id="status-filter-summary" class="filter-summary">All statuses</span>
+            <span class="multi-dropdown-caret" aria-hidden="true">v</span>
+          </button>
+          <div id="status-filter-list" class="multi-dropdown-menu" role="group" aria-label="Status multi-select" hidden></div>
+        </div>
+      </div>
+    </section>
+
+    <p id="state" class="state">Loading data...</p>
+
+    <section class="grid">
+      <article class="card">
+        <h2>Assignee Distribution</h2>
+        <div class="chart-wrap"><canvas id="donut-chart"></canvas></div>
+        <ul id="assignee-legend" class="legend-list"></ul>
+      </article>
+
+      <article class="card">
+        <h2>Tickets by Month</h2>
+        <div class="chart-wrap"><canvas id="month-chart"></canvas></div>
+      </article>
+    </section>
+
+    <section class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Month</th>
+            <th>Assignee</th>
+            <th>Status</th>
+            <th>Priority</th>
+            <th>Tickets</th>
+            <th>SLA Breach</th>
+          </tr>
+        </thead>
+        <tbody id="detail-body"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="js/dashboard.js"></script>
+  <script src="shared/nav.js"></script>
+</body>
+</html>

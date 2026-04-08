@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SRF-AXSA - Home</title>
+  <link rel="stylesheet" href="../shared/nav.css" />
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --card: #ffffff;
+      --ink: #172b4d;
+      --muted: #5e6c84;
+      --line: #dfe7f3;
+      --brand: #005fb8;
+      --brand-soft: #e8f1fb;
+      --ok: #1f9d63;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      color: var(--ink);
+      background: radial-gradient(circle at 10% 10%, #ffffff 0%, #f2f7fd 30%, var(--bg) 100%);
+      min-height: 100vh;
+    }
+    .page { max-width: 980px; margin: 0 auto; padding: 24px; }
+    .hero {
+      background: linear-gradient(140deg, #0b6fbf 0%, #0f8ad8 100%);
+      color: #fff;
+      border-radius: 16px;
+      padding: 22px;
+      box-shadow: 0 12px 28px rgba(11, 111, 191, 0.24);
+      margin-bottom: 18px;
+    }
+    .hero h1 { margin: 0 0 8px; font-size: 28px; }
+    .hero p { margin: 0; opacity: 0.95; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(240px, 1fr)); gap: 14px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px;
+      box-shadow: 0 2px 8px rgba(23, 43, 77, 0.06);
+    }
+    .card h2 { margin: 0 0 8px; font-size: 17px; }
+    .meta { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+    .links { display: flex; flex-direction: column; gap: 8px; }
+    .link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: space-between;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      border-radius: 10px;
+      text-decoration: none;
+      padding: 10px 12px;
+      font-size: 14px;
+      transition: transform .14s ease, border-color .14s ease, background .14s ease;
+    }
+    .link:hover {
+      transform: translateY(-1px);
+      border-color: var(--brand);
+      background: var(--brand-soft);
+    }
+    .pill {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: var(--ok);
+      background: #e8f8ef;
+      border: 1px solid #c2ead2;
+      padding: 2px 7px;
+      border-radius: 999px;
+    }
+    @media (max-width: 760px) {
+      .grid { grid-template-columns: 1fr; }
+      .hero h1 { font-size: 23px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <h1>Home</h1>
+      <p>Quick hub to move between dashboards.</p>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <h2>Tickets by Hour</h2>
+        <p class="meta">Hourly dashboard with month and assignment group filters.</p>
+        <div class="links">
+          <a class="link" href="/tickets-by-hour.html" target="_blank" rel="noopener noreferrer">
+            Open Tickets by Hour
+            <span class="pill">open</span>
+          </a>
+          <a class="link" href="/tickets-by-hour.html?months=2026-02&assignmentGroup=AXPO+Service+Management+Center" target="_blank" rel="noopener noreferrer">
+            View with current filters
+            <span class="pill">open</span>
+          </a>
+        </div>
+      </article>
+
+      <article class="card">
+        <h2>Tickets per Agent</h2>
+        <p class="meta">Monthly dashboard by agent for Onsite Baden.</p>
+        <div class="links">
+          <a class="link" href="/tickets-per-agent/index.html" target="_blank" rel="noopener noreferrer">
+            Open on localhost:3000
+            <span class="pill">open</span>
+          </a>
+          <a class="link" href="/tickets-per-agent/index.html?month=2026-03" target="_blank" rel="noopener noreferrer">
+            Latest month view
+            <span class="pill">open</span>
+          </a>
+        </div>
+      </article>
+
+      <article class="card">
+        <h2>Ticket Lifecycle</h2>
+        <p class="meta">Lifecycle time analysis with assignment-group segmentation.</p>
+        <div class="links">
+          <a class="link" href="/ticket-lifecycle/index.html" target="_blank" rel="noopener noreferrer">
+            Open Ticket Lifecycle
+            <span class="pill">open</span>
+          </a>
+          <a class="link" href="/ticket-lifecycle/index.html" target="_blank" rel="noopener noreferrer">
+            Latest month and default SMC group
+            <span class="pill">open</span>
+          </a>
+        </div>
+      </article>
+    </section>
+  </main>
+  <script src="../shared/nav.js"></script>
+</body>
+</html>

@@ -259,18 +259,22 @@ class DatabricksClient:
                 cols = [desc[0] for desc in cur.description]
                 return [dict(zip(cols, row)) for row in cur.fetchall()]
         except RequestError as exc:
-            message = str(exc)
-            if "401" not in message and "UNAUTHORIZED" not in message.upper():
-                raise
-
-            # Databricks token/session can expire mid-run; reconnect once and retry.
-            logger.warning("Databricks 401 received, resetting connection and retrying query once.")
+            # Databricks can surface auth/session expiry as a generic RequestError message.
+            # Always reconnect and retry once to recover from idle-session/token expiry.
+            logger.warning(
+                "Databricks RequestError received (%s); resetting connection and retrying query once.",
+                exc,
+            )
             self._reset_connection()
-            conn = self._get_connection()
-            with conn.cursor() as cur:
-                cur.execute(sql, params or [])
-                cols = [desc[0] for desc in cur.description]
-                return [dict(zip(cols, row)) for row in cur.fetchall()]
+            try:
+                conn = self._get_connection()
+                with conn.cursor() as cur:
+                    cur.execute(sql, params or [])
+                    cols = [desc[0] for desc in cur.description]
+                    return [dict(zip(cols, row)) for row in cur.fetchall()]
+            except RequestError:
+                # Bubble up the original failure shape to preserve API error handling.
+                raise
 
     def _get_assignment_group_column(self) -> str:
         """Resolve assignment-group column name across schema variants."""

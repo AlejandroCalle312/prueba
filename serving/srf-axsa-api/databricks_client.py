@@ -16,10 +16,13 @@ import logging
 import os
 import re
 import time
+import json
 from html import unescape
 from datetime import datetime, timezone, timedelta, time as dt_time
 from functools import lru_cache
 from typing import Any
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
@@ -93,11 +96,22 @@ class DatabricksClient:
     """Thread-safe Databricks SQL Warehouse client with TTL response cache."""
 
     def __init__(self) -> None:
-        workspace_url = os.environ.get("DATABRICKS_WORKSPACE_URL", "").rstrip("/")
-        http_path = os.environ.get("DATABRICKS_HTTP_PATH", "")
+        workspace_url = (
+            os.environ.get("DATABRICKS_WORKSPACE_URL", "").strip()
+            or os.environ.get("DATABRICKS_HOST", "").strip()
+        ).rstrip("/")
+        if workspace_url and not workspace_url.startswith("http://") and not workspace_url.startswith("https://"):
+            workspace_url = f"https://{workspace_url}"
+
+        http_path = os.environ.get("DATABRICKS_HTTP_PATH", "").strip()
+        if not http_path:
+            warehouse_id = os.environ.get("DATABRICKS_SQL_WAREHOUSE_ID", "").strip()
+            if warehouse_id:
+                http_path = f"/sql/1.0/warehouses/{warehouse_id}"
+
         if not workspace_url or not http_path:
             raise RuntimeError(
-                "DATABRICKS_WORKSPACE_URL and DATABRICKS_HTTP_PATH must be set."
+                "Databricks settings missing. Set DATABRICKS_WORKSPACE_URL (or DATABRICKS_HOST) and DATABRICKS_HTTP_PATH (or DATABRICKS_SQL_WAREHOUSE_ID)."
             )
         self._server_hostname = workspace_url.replace("https://", "").replace(
             "http://", ""
@@ -142,6 +156,36 @@ class DatabricksClient:
         if pat:
             logger.info("Using DATABRICKS_TOKEN authentication.")
             return pat
+
+        # Service principal flow compatible with existing app settings from previous app.
+        client_id = os.getenv("DATABRICKS_CLIENT_ID", "").strip()
+        client_secret = os.getenv("DATABRICKS_CLIENT_SECRET", "").strip()
+        tenant_id = (os.getenv("AZURE_TENANT_ID", "").strip() or os.getenv("DATABRICKS_TENANT_ID", "").strip())
+        if client_id and client_secret and tenant_id:
+            token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+            token_body = urlencode(
+                {
+                    "grant_type": "client_credentials",
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "scope": f"{_DATABRICKS_ARM_RESOURCE}/.default",
+                }
+            ).encode("utf-8")
+            req = Request(
+                token_url,
+                data=token_body,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                method="POST",
+            )
+            try:
+                with urlopen(req, timeout=20) as resp:
+                    payload = json.loads(resp.read().decode("utf-8"))
+                access_token = (payload.get("access_token") or "").strip()
+                if access_token:
+                    logger.info("Using Entra client credentials authentication for Databricks.")
+                    return access_token
+            except Exception:
+                logger.info("Entra client credentials flow failed; trying Azure identity fallbacks.")
 
         # Fallback 1 (local): Azure CLI identity
         try:

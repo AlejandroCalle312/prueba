@@ -2,8 +2,9 @@
 Databricks SQL Warehouse client.
 
 Authentication priority:
-  1. DATABRICKS_TOKEN env var  — PAT token injected from Key Vault at runtime
-  2. Azure Managed Identity    — via azure-identity when running on Azure compute
+    1. Entra client credentials  — DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET
+    2. DATABRICKS_TOKEN env var  — PAT token injected from Key Vault at runtime
+    3. Azure Managed Identity    — via azure-identity when running on Azure compute
 
 Caching:
   Responses are cached in-process with a configurable TTL (default 3 600 s).
@@ -152,12 +153,8 @@ class DatabricksClient:
 
     def _resolve_token(self) -> str:
         """Return a valid Databricks access token."""
-        pat = os.getenv("DATABRICKS_TOKEN", "").strip()
-        if pat:
-            logger.info("Using DATABRICKS_TOKEN authentication.")
-            return pat
-
-        # Service principal flow compatible with existing app settings from previous app.
+        # Prefer service principal flow for production reliability.
+        # PAT values can expire/revoke and cause recurrent 401 errors.
         client_id = os.getenv("DATABRICKS_CLIENT_ID", "").strip()
         client_secret = os.getenv("DATABRICKS_CLIENT_SECRET", "").strip()
         tenant_id = (os.getenv("AZURE_TENANT_ID", "").strip() or os.getenv("DATABRICKS_TENANT_ID", "").strip())
@@ -186,6 +183,11 @@ class DatabricksClient:
                     return access_token
             except Exception:
                 logger.info("Entra client credentials flow failed; trying Azure identity fallbacks.")
+
+        pat = os.getenv("DATABRICKS_TOKEN", "").strip()
+        if pat:
+            logger.info("Using DATABRICKS_TOKEN authentication.")
+            return pat
 
         # Fallback 1 (local): Azure CLI identity
         try:

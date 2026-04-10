@@ -137,7 +137,7 @@ class DatabricksClient:
     @staticmethod
     def _as_datetime(value: Any) -> datetime | None:
         if isinstance(value, datetime):
-            return value
+            return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
         if not isinstance(value, str):
             return None
         candidate = value.strip()
@@ -145,9 +145,17 @@ class DatabricksClient:
             return None
         try:
             normalized = candidate.replace("Z", "+00:00")
-            return datetime.fromisoformat(normalized)
+            parsed = datetime.fromisoformat(normalized)
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
         except ValueError:
             return None
+
+    @staticmethod
+    def _to_utc_iso(value: datetime | None) -> str | None:
+        if value is None:
+            return None
+        utc_value = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return utc_value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
     # ── Authentication ────────────────────────────────────────────────────────
 
@@ -959,8 +967,8 @@ class DatabricksClient:
                     "month": str(row.get("month") or ""),
                     "assignmentGroup": self._normalise_group(row.get("assignment_group")),
                     "status": str(row.get("status") or "Unknown"),
-                    "createdIn": created.isoformat() if created else None,
-                    "closedOrResolvedIn": closed.isoformat() if closed else None,
+                    "createdIn": self._to_utc_iso(created),
+                    "closedOrResolvedIn": self._to_utc_iso(closed),
                 }
             )
 
@@ -1140,8 +1148,8 @@ class DatabricksClient:
             segments.append(
                 {
                     "assignmentGroup": current_group,
-                    "start": cursor.isoformat(),
-                    "end": ts.isoformat(),
+                    "start": self._to_utc_iso(cursor),
+                    "end": self._to_utc_iso(ts),
                     "durationSeconds": duration_seconds,
                 }
             )
@@ -1152,8 +1160,8 @@ class DatabricksClient:
             segments.append(
                 {
                     "assignmentGroup": current_group,
-                    "start": cursor.isoformat(),
-                    "end": closed_dt.isoformat(),
+                    "start": self._to_utc_iso(cursor),
+                    "end": self._to_utc_iso(closed_dt),
                     "durationSeconds": self._duration_seconds(cursor, closed_dt),
                 }
             )
@@ -1188,7 +1196,7 @@ class DatabricksClient:
 
         response_transitions = [
             {
-                "timestamp": t["timestamp"].isoformat(),
+                "timestamp": self._to_utc_iso(t["timestamp"]),
                 "fromGroup": self._normalise_group(t.get("fromGroup")),
                 "toGroup": self._normalise_group(t.get("toGroup")),
                 "source": t.get("source") or transition_source,
@@ -1208,9 +1216,9 @@ class DatabricksClient:
             "ticketKey": baseline_ticket_key or None,
             "status": str(last_row.get("status") or "Unknown"),
             "priority": str(last_row.get("priority") or "Unknown"),
-            "createdIn": created_dt.isoformat(),
-            "lifecycleStartIn": lifecycle_start_dt.isoformat(),
-            "closedOrResolvedIn": closed_dt.isoformat(),
+            "createdIn": self._to_utc_iso(created_dt),
+            "lifecycleStartIn": self._to_utc_iso(lifecycle_start_dt),
+            "closedOrResolvedIn": self._to_utc_iso(closed_dt),
             "totalDurationSeconds": self._duration_seconds(lifecycle_start_dt, closed_dt),
             "groupDurations": group_durations,
             "segments": segments,
@@ -1711,7 +1719,7 @@ class DatabricksClient:
             ticket_number = match.group(1) if match else None
             ticket_url = f"{_JIRA_BASE_URL}/{ticket_key}" if ticket_key else None
             event_time = self._as_datetime(row.get("event_time"))
-            event_value = event_time.isoformat() if event_time else row.get("event_time")
+            event_value = self._to_utc_iso(event_time) if event_time else row.get("event_time")
             event_local_value = event_value
             tickets.append(
                 {

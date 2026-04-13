@@ -133,6 +133,9 @@ class DatabricksClient:
         self._resolved_activity_ticket_id_column: str | None = None
         self._resolved_activity_date_column: str | None = None
         self._resolved_activity_content_column: str | None = None
+        self._resolved_activity_author_column: str | None = None
+        self._resolved_activity_visibility_column: str | None = None
+        self._resolved_activity_updated_column: str | None = None
 
     @staticmethod
     def _as_datetime(value: Any) -> datetime | None:
@@ -602,6 +605,42 @@ class DatabricksClient:
         self._resolved_activity_content_column = resolved
         return resolved
 
+    def _get_activity_author_column(self) -> str | None:
+        if self._resolved_activity_author_column:
+            return self._resolved_activity_author_column
+        resolved = self._resolve_first_existing_column_in_table(
+            _ACTIVITY_TABLE,
+            ["author", "created_by", "user", "username"],
+            "activity author",
+            required=False,
+        )
+        self._resolved_activity_author_column = resolved
+        return resolved
+
+    def _get_activity_visibility_column(self) -> str | None:
+        if self._resolved_activity_visibility_column:
+            return self._resolved_activity_visibility_column
+        resolved = self._resolve_first_existing_column_in_table(
+            _ACTIVITY_TABLE,
+            ["visibility", "access", "scope", "security_level"],
+            "activity visibility",
+            required=False,
+        )
+        self._resolved_activity_visibility_column = resolved
+        return resolved
+
+    def _get_activity_updated_column(self) -> str | None:
+        if self._resolved_activity_updated_column:
+            return self._resolved_activity_updated_column
+        resolved = self._resolve_first_existing_column_in_table(
+            _ACTIVITY_TABLE,
+            ["updated", "updated_at", "last_updated", "modified_at"],
+            "activity updated",
+            required=False,
+        )
+        self._resolved_activity_updated_column = resolved
+        return resolved
+
     @staticmethod
     def _duration_seconds(start: datetime | None, end: datetime | None) -> int:
         if not start or not end:
@@ -1066,16 +1105,29 @@ class DatabricksClient:
             previous_group = group
 
         activity_changes: list[dict[str, Any]] = []
+        activity_events: list[dict[str, Any]] = []
         activity_error: str | None = None
         first_activity_ts: datetime | None = None
         try:
             activity_ticket_col = self._get_activity_ticket_id_column()
             activity_date_col = self._get_activity_date_column()
             activity_content_col = self._get_activity_content_column()
+            activity_author_col = self._get_activity_author_column()
+            activity_visibility_col = self._get_activity_visibility_column()
+            activity_updated_col = self._get_activity_updated_column()
+            activity_select_parts = [
+                f"{activity_date_col} AS activity_time",
+                f"{activity_content_col} AS content",
+            ]
+            if activity_author_col:
+                activity_select_parts.append(f"{activity_author_col} AS activity_author")
+            if activity_visibility_col:
+                activity_select_parts.append(f"{activity_visibility_col} AS activity_visibility")
+            if activity_updated_col:
+                activity_select_parts.append(f"{activity_updated_col} AS activity_updated")
             activity_sql = f"""
                 SELECT
-                    {activity_date_col} AS activity_time,
-                    {activity_content_col} AS content
+                    {", ".join(activity_select_parts)}
                 FROM {_ACTIVITY_TABLE}
                 WHERE CAST({activity_ticket_col} AS STRING) = ?
                   AND {activity_date_col} IS NOT NULL
@@ -1085,12 +1137,26 @@ class DatabricksClient:
             activity_rows = self._execute(activity_sql, [baseline_ticket_id])
             for row in activity_rows:
                 ts = self._as_datetime(row.get("activity_time"))
+                content_value = str(row.get("content") or "").strip()
+                if not content_value:
+                    continue
+                if ts is not None and (first_activity_ts is None or ts < first_activity_ts):
+                    first_activity_ts = ts
+                activity_events.append(
+                    {
+                        "timestamp": self._to_utc_iso(ts) if ts else str(row.get("activity_time") or "").strip(),
+                        "updated": self._to_utc_iso(self._as_datetime(row.get("activity_updated")))
+                        if row.get("activity_updated") is not None
+                        else None,
+                        "author": str(row.get("activity_author") or "").strip() or None,
+                        "visibility": str(row.get("activity_visibility") or "").strip() or None,
+                        "content": content_value,
+                    }
+                )
                 if ts is None:
                     continue
-                if first_activity_ts is None or ts < first_activity_ts:
-                    first_activity_ts = ts
                 from_group, to_group = self._parse_assignment_group_transitions_from_activity(
-                    str(row.get("content") or "")
+                    content_value
                 )
                 if not to_group:
                     continue
@@ -1223,11 +1289,13 @@ class DatabricksClient:
             "groupDurations": group_durations,
             "segments": segments,
             "transitions": response_transitions,
+            "activityEvents": activity_events,
             "sla": sla,
             "meta": {
                 "transitionSource": transition_source,
                 "activityFallbackUsed": transition_source != "activity",
                 "activityError": activity_error,
+                "activityEventCount": len(activity_events),
                 "lifecycleStartSource": lifecycle_start_source,
                 "reportingTimezone": self._reporting_timezone(),
                 "scope": "closed_or_resolved",

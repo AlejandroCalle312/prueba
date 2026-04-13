@@ -42,6 +42,8 @@ const dom = {
   groupsTotalFill: $('#groups-total-fill'),
   timelineList: $('#timeline-list'),
   timelineEmpty: $('#timeline-empty'),
+  activityList: $('#activity-list'),
+  activityEmpty: $('#activity-empty'),
   slaContent: $('#sla-content'),
   slaEmpty: $('#sla-empty'),
   slaTarget: $('#sla-target'),
@@ -238,6 +240,10 @@ function clearDetails() {
   dom.timelineList.classList.add('hidden');
   dom.timelineEmpty.classList.remove('hidden');
   dom.timelineEmpty.textContent = 'No ticket selected.';
+  dom.activityList.innerHTML = '';
+  dom.activityList.classList.add('hidden');
+  dom.activityEmpty.classList.remove('hidden');
+  dom.activityEmpty.textContent = 'No ticket selected.';
   if (dom.slaContent) dom.slaContent.classList.add('hidden');
   if (dom.slaEmpty) {
     dom.slaEmpty.classList.remove('hidden');
@@ -261,6 +267,7 @@ function showDetailsError(message) {
   dom.metricStatus.textContent = 'Error';
   dom.metricSource.textContent = 'API';
   dom.timelineEmpty.textContent = `Unable to load ticket details: ${message}`;
+  dom.activityEmpty.textContent = `Unable to load activity events: ${message}`;
   if (dom.slaEmpty) {
     dom.slaEmpty.textContent = 'SLA unavailable until API error is resolved.';
   }
@@ -352,6 +359,37 @@ function renderDetails() {
     dom.timelineList.classList.remove('hidden');
     dom.timelineEmpty.classList.add('hidden');
     dom.timelineEmpty.textContent = '';
+  }
+
+  const activityEvents = details.activityEvents || [];
+  dom.activityList.innerHTML = '';
+  if (!activityEvents.length) {
+    dom.activityList.classList.add('hidden');
+    dom.activityEmpty.classList.remove('hidden');
+    dom.activityEmpty.textContent = 'No Jira activity rows found for selected ticket.';
+  } else {
+    activityEvents.forEach((event) => {
+      const li = document.createElement('li');
+
+      const time = document.createElement('div');
+      const detailParts = [];
+      if (event.visibility) detailParts.push(event.visibility);
+      if (event.author) detailParts.push(event.author);
+      if (event.updated) detailParts.push(`updated ${formatDateLabel(event.updated)}`);
+      time.className = 'time';
+      time.textContent = `${formatDateLabel(event.timestamp)}${detailParts.length ? ` (${detailParts.join(' | ')})` : ''}`;
+
+      const content = document.createElement('div');
+      content.className = 'activity-content';
+      content.textContent = event.content || '-';
+
+      li.appendChild(time);
+      li.appendChild(content);
+      dom.activityList.appendChild(li);
+    });
+    dom.activityList.classList.remove('hidden');
+    dom.activityEmpty.classList.add('hidden');
+    dom.activityEmpty.textContent = '';
   }
 }
 

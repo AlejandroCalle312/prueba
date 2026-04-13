@@ -133,6 +133,7 @@ class DatabricksClient:
         self._resolved_activity_ticket_id_column: str | None = None
         self._resolved_activity_date_column: str | None = None
         self._resolved_activity_content_column: str | None = None
+        self._resolved_internal_ticket_id_column: str | None = None
         self._resolved_activity_author_column: str | None = None
         self._resolved_activity_visibility_column: str | None = None
         self._resolved_activity_updated_column: str | None = None
@@ -579,6 +580,18 @@ class DatabricksClient:
             required=True,
         )
         self._resolved_activity_ticket_id_column = resolved
+        return resolved
+
+    def _get_internal_ticket_id_column(self) -> str | None:
+        if self._resolved_internal_ticket_id_column:
+            return self._resolved_internal_ticket_id_column
+        resolved = self._resolve_first_existing_column_in_table(
+            _TICKETS_TABLE,
+            ["id", "ticket_id", "issue_id"],
+            "internal ticket id",
+            required=False,
+        )
+        self._resolved_internal_ticket_id_column = resolved
         return resolved
 
     def _get_activity_date_column(self) -> str:
@@ -1037,6 +1050,7 @@ class DatabricksClient:
         timeline_column = self._get_timeline_event_column()
         status_column = self._get_status_column()
         priority_column = self._get_priority_column()
+        internal_ticket_id_column = self._get_internal_ticket_id_column()
         closed_col = self._get_closed_time_column()
         resolved_col = self._get_resolved_time_column()
 
@@ -1058,6 +1072,7 @@ class DatabricksClient:
             SELECT
                 {_TICKET_ID_COLUMN} AS ticket_id,
                 {_TICKET_KEY_COLUMN} AS ticket_key,
+                {internal_ticket_id_column if internal_ticket_id_column else 'NULL'} AS internal_ticket_id,
                 created_in,
                 {close_expr} AS closed_or_resolved_in,
                 COALESCE(NULLIF(TRIM({assignment_group_column}), ''), 'Unknown') AS assignment_group,
@@ -1078,6 +1093,7 @@ class DatabricksClient:
         first_row = ticket_history[0]
         last_row = ticket_history[-1]
         baseline_ticket_id = str(last_row.get("ticket_id") or first_row.get("ticket_id") or "").strip()
+        internal_ticket_id = str(last_row.get("internal_ticket_id") or first_row.get("internal_ticket_id") or "").strip()
         baseline_ticket_key = str(last_row.get("ticket_key") or first_row.get("ticket_key") or "").strip()
         created_dt = self._as_datetime(first_row.get("created_in"))
         closed_dt = self._as_datetime(last_row.get("closed_or_resolved_in"))
@@ -1115,6 +1131,14 @@ class DatabricksClient:
             activity_author_col = self._get_activity_author_column()
             activity_visibility_col = self._get_activity_visibility_column()
             activity_updated_col = self._get_activity_updated_column()
+            activity_id_candidates = []
+            for candidate in [baseline_ticket_id, internal_ticket_id, ticket_id]:
+                value = (candidate or "").strip()
+                if value and value not in activity_id_candidates:
+                    activity_id_candidates.append(value)
+            if not activity_id_candidates:
+                activity_id_candidates.append(baseline_ticket_id)
+
             activity_select_parts = [
                 f"{activity_date_col} AS activity_time",
                 f"{activity_content_col} AS content",
@@ -1125,16 +1149,17 @@ class DatabricksClient:
                 activity_select_parts.append(f"{activity_visibility_col} AS activity_visibility")
             if activity_updated_col:
                 activity_select_parts.append(f"{activity_updated_col} AS activity_updated")
+            id_filter_sql = " OR ".join([f"CAST({activity_ticket_col} AS STRING) = ?" for _ in activity_id_candidates])
             activity_sql = f"""
                 SELECT
                     {", ".join(activity_select_parts)}
                 FROM {_ACTIVITY_TABLE}
-                WHERE CAST({activity_ticket_col} AS STRING) = ?
+                WHERE ({id_filter_sql})
                   AND {activity_date_col} IS NOT NULL
                   AND {activity_content_col} IS NOT NULL
                 ORDER BY {activity_date_col} ASC
             """
-            activity_rows = self._execute(activity_sql, [baseline_ticket_id])
+            activity_rows = self._execute(activity_sql, activity_id_candidates)
             for row in activity_rows:
                 ts = self._as_datetime(row.get("activity_time"))
                 content_value = str(row.get("content") or "").strip()

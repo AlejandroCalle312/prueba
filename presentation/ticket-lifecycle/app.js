@@ -6,7 +6,7 @@ const API_BASE = configuredApiBase && !/^%%.+%%$/.test(configuredApiBase)
   : window.location.origin;
 const PRIORITY_GROUP_KEYWORD = 'service management center';
 const JIRA_BASE_URL = 'https://axpo.atlassian.net/browse';
-const DISPLAY_TIMEZONE = 'Europe/Zurich';
+const DISPLAY_TIMEZONE = 'UTC';
 
 const state = {
   months: [],

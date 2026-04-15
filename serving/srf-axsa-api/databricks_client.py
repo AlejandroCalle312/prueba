@@ -813,6 +813,16 @@ class DatabricksClient:
             if not value:
                 return False
             lowered = value.lower().strip()
+            # Jira identity payloads (ari:cloud:identity::user/...) are user IDs, not assignment groups.
+            if "ari:cloud:identity::user/" in lowered:
+                return False
+            if re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", lowered):
+                return False
+            if re.fullmatch(
+                r"(?:ari:cloud:identity::user/[0-9]+:[0-9a-f-]{36})(?:\s*,\s*ari:cloud:identity::user/[0-9]+:[0-9a-f-]{36})+",
+                lowered,
+            ):
+                return False
             if lowered in {
                 "assigned",
                 "work in progress",

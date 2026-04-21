@@ -457,6 +457,31 @@ async def ticket_lifecycle_details(
     return JSONResponse(content=data)
 
 
+@app.get("/api/ticket-lifecycle/score-engine", tags=["ticket-lifecycle"])
+async def ticket_lifecycle_score_engine(
+    months: Annotated[
+        str | None,
+        Query(
+            description="Comma-separated YYYY-MM values for month filter.",
+            example="2026-03,2026-02",
+        ),
+    ] = None,
+    limit: Annotated[
+        int,
+        Query(ge=1, le=5000, description="Maximum groups to return."),
+    ] = 2000,
+) -> JSONResponse:
+    """Return resolution score engine with per-group scoring and forecast."""
+    parsed_months = _parse_months(months)
+    client: DatabricksClient = get_client()
+    try:
+        data = client.get_ticket_lifecycle_score_engine(parsed_months, limit)
+    except Exception as exc:
+        logger.error("ticket-lifecycle score-engine query failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail="Upstream data source error.") from exc
+    return JSONResponse(content=data)
+
+
 @app.post("/api/cache/invalidate", tags=["ops"])
 async def invalidate_cache(
     x_cache_token: Annotated[

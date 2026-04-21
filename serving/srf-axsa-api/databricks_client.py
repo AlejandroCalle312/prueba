@@ -1337,6 +1337,176 @@ class DatabricksClient:
             },
         }
 
+    # ── Score Engine ──────────────────────────────────────────────────────────
+
+    def get_ticket_lifecycle_score_engine(
+        self,
+        months: list[str] | None,
+        limit: int = 2000,
+    ) -> dict[str, Any]:
+        """Aggregate resolution statistics per assignment group for scoring/forecast."""
+        cleaned_months = sorted(months or [])
+        cache_key = "score_engine::months={months}::limit={limit}".format(
+            months=",".join(cleaned_months) if cleaned_months else "__all__",
+            limit=max(1, min(int(limit or 2000), 5000)),
+        )
+        return self._cached(cache_key, lambda: self._fetch_score_engine(cleaned_months, limit))
+
+    def _fetch_score_engine(self, months: list[str], limit: int) -> dict[str, Any]:
+        assignment_group_column = self._get_assignment_group_column()
+        timeline_column = self._get_timeline_event_column()
+        status_column = self._get_status_column()
+        priority_column = self._get_priority_column()
+        issue_type_column = self._get_issue_type_column()
+        local_updated_expr = f"FROM_UTC_TIMESTAMP({timeline_column}, '{_REPORTING_TIMEZONE}')"
+        # Score engine: Closed + Resolved = tickets considered "resolved" in Jira
+        score_status_filter = f"LOWER(TRIM({status_column})) IN ('resolved', 'closed')" if status_column else "1 = 1"
+        score_type_filter = f"LOWER(TRIM({issue_type_column})) LIKE '%incident%'"
+        smc_filter = "AND smc_assignments = 1"
+
+        limit_value = max(1, min(int(limit or 2000), 5000))
+
+        # Month filter on updated_in (Jira "Updated" = resolution/close date).
+        # For Closed tickets updated_in reflects the actual close date spread across months.
+        month_filter = ""
+        if months:
+            month_list = ", ".join([f"'{m}'" for m in months])
+            month_filter = f"AND DATE_FORMAT({local_updated_expr}, 'yyyy-MM') IN ({month_list})"
+
+        sql = f"""
+            WITH all_tickets AS (
+                SELECT
+                    COALESCE(NULLIF(TRIM({assignment_group_column}), ''), 'Unknown') AS assignment_group
+                FROM {_TICKETS_TABLE}
+                WHERE created_in IS NOT NULL
+                  AND {timeline_column} IS NOT NULL
+                  AND {score_type_filter}
+                  {smc_filter}
+                  {month_filter}
+            ),
+            received_per_group AS (
+                SELECT assignment_group, COUNT(*) AS tickets_received
+                FROM all_tickets
+                GROUP BY assignment_group
+            ),
+            resolved_tickets AS (
+                SELECT
+                    {_TICKET_KEY_COLUMN} AS ticket_key,
+                    {_TICKET_ID_COLUMN} AS ticket_id,
+                    created_in,
+                    {timeline_column} AS updated_in,
+                    COALESCE(NULLIF(TRIM({assignment_group_column}), ''), 'Unknown') AS assignment_group,
+                    {priority_column if priority_column else "'Unknown'"} AS priority,
+                    UNIX_TIMESTAMP({timeline_column}) - UNIX_TIMESTAMP(created_in) AS duration_seconds
+                FROM {_TICKETS_TABLE}
+                WHERE created_in IS NOT NULL
+                  AND {timeline_column} IS NOT NULL
+                  AND {score_status_filter}
+                  AND {score_type_filter}
+                  {smc_filter}
+                  AND UNIX_TIMESTAMP({timeline_column}) - UNIX_TIMESTAMP(created_in) > 0
+                  {month_filter}
+            )
+            SELECT
+                r.assignment_group,
+                COUNT(*) AS tickets_resolved,
+                COALESCE(rpg.tickets_received, COUNT(*)) AS tickets_received,
+                AVG(r.duration_seconds) AS avg_resolution_seconds,
+                MIN(r.duration_seconds) AS min_resolution_seconds,
+                MAX(r.duration_seconds) AS max_resolution_seconds,
+                PERCENTILE_APPROX(r.duration_seconds, 0.5) AS median_resolution_seconds,
+                SUM(r.duration_seconds) AS total_time_held_seconds,
+                COUNT(CASE WHEN UPPER(r.priority) LIKE '%P1%' THEN 1 END) AS p1_count,
+                COUNT(CASE WHEN UPPER(r.priority) LIKE '%P2%' THEN 1 END) AS p2_count,
+                COUNT(CASE WHEN UPPER(r.priority) LIKE '%P3%' THEN 1 END) AS p3_count,
+                COUNT(CASE WHEN UPPER(r.priority) LIKE '%P4%' THEN 1 END) AS p4_count,
+                COUNT(CASE WHEN UPPER(r.priority) LIKE '%P5%' THEN 1 END) AS p5_count
+            FROM resolved_tickets r
+            LEFT JOIN received_per_group rpg ON r.assignment_group = rpg.assignment_group
+            GROUP BY r.assignment_group, rpg.tickets_received
+            ORDER BY tickets_resolved DESC
+            LIMIT {limit_value}
+        """
+
+        rows = self._execute(sql)
+        grand_total_tickets = sum(int(r.get("tickets_resolved") or 0) for r in rows)
+        grand_total_tickets = max(grand_total_tickets, 1)
+
+        scored_groups: list[dict[str, Any]] = []
+        for row in rows:
+            resolved = int(row.get("tickets_resolved") or 0)
+            received = int(row.get("tickets_received") or resolved)
+            avg_secs = float(row.get("avg_resolution_seconds") or 0)
+            median_secs = float(row.get("median_resolution_seconds") or 0)
+            min_secs = float(row.get("min_resolution_seconds") or 0)
+            max_secs = float(row.get("max_resolution_seconds") or 0)
+            total_held = float(row.get("total_time_held_seconds") or 0)
+
+            resolution_share_pct = round((resolved / grand_total_tickets) * 100, 1)
+            resolution_rate_pct = round((resolved / max(received, 1)) * 100, 1)
+
+            # Composite score: volume-weighted (higher = more dominant resolver)
+            # 60% resolution share + 40% inverse of avg resolution time (faster = better)
+            max_avg = max(float(r.get("avg_resolution_seconds") or 1) for r in rows)
+            speed_score = round((1 - (avg_secs / max(max_avg, 1))) * 100, 1) if max_avg > 0 else 50.0
+            composite_score = round(resolution_share_pct * 0.6 + speed_score * 0.4, 1)
+
+            scored_groups.append({
+                "assignmentGroup": str(row.get("assignment_group") or "Unknown"),
+                "ticketsReceived": received,
+                "ticketsResolved": resolved,
+                "resolutionRatePct": resolution_rate_pct,
+                "resolutionSharePct": resolution_share_pct,
+                "avgResolutionSeconds": round(avg_secs),
+                "medianResolutionSeconds": round(median_secs),
+                "minResolutionSeconds": round(min_secs),
+                "maxResolutionSeconds": round(max_secs),
+                "totalTimeHeldSeconds": round(total_held),
+                "priorityBreakdown": {
+                    "P1": int(row.get("p1_count") or 0),
+                    "P2": int(row.get("p2_count") or 0),
+                    "P3": int(row.get("p3_count") or 0),
+                    "P4": int(row.get("p4_count") or 0),
+                    "P5": int(row.get("p5_count") or 0),
+                },
+                "speedScore": speed_score,
+                "compositeScore": composite_score,
+            })
+
+        # Sort by tickets resolved descending
+        scored_groups.sort(key=lambda g: g["ticketsResolved"], reverse=True)
+
+        # Assign ranks
+        for idx, group in enumerate(scored_groups):
+            group["rank"] = idx + 1
+
+        # Forecast: predict next-month resolution share per group
+        forecast = []
+        for group in scored_groups:
+            forecast.append({
+                "assignmentGroup": group["assignmentGroup"],
+                "forecastSharePct": group["resolutionSharePct"],
+                "confidence": "high" if group["ticketsResolved"] >= 20 else "medium" if group["ticketsResolved"] >= 5 else "low",
+            })
+
+        return {
+            "groups": scored_groups,
+            "forecast": forecast,
+            "summary": {
+                "totalTicketsAnalyzed": grand_total_tickets,
+                "groupCount": len(scored_groups),
+                "monthsAnalyzed": months if months else "all",
+            },
+            "meta": {
+                "reportingTimezone": self._reporting_timezone(),
+                "scope": "closed_or_resolved",
+                "scoringWeights": {
+                    "resolutionShare": 0.6,
+                    "speedScore": 0.4,
+                },
+            },
+        }
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     def _build_event_cte(self, metric_mode: str) -> tuple[str, str]:

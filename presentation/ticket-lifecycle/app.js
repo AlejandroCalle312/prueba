@@ -50,6 +50,18 @@ const dom = {
   slaPriority: $('#sla-priority'),
   slaBalance: $('#sla-balance'),
   slaTicketLink: $('#sla-ticket-link'),
+  btnLoadScores: $('#btn-load-scores'),
+  scoreEmpty: $('#score-empty'),
+  scoreLoading: $('#score-loading'),
+  scoreSummary: $('#score-summary'),
+  scoreResults: $('#score-results'),
+  scoreBody: $('#score-body'),
+  scorePriorityBreakdown: $('#score-priority-breakdown'),
+  scoreMonthsList: $('#score-months-list'),
+};
+
+const scoreState = {
+  selectedMonths: [],
 };
 
 function normalise(value) {
@@ -408,6 +420,7 @@ async function loadMonths() {
     state.selectedMonths = [state.months[0]];
   }
   renderMonths();
+  renderScoreMonths();
 }
 
 async function loadGroups() {
@@ -482,7 +495,257 @@ function bindEvents() {
     renderGroups();
     renderTickets();
     clearDetails();
+    clearScoreEngine();
+    scoreState.selectedMonths = [];
+    renderScoreMonths();
   });
+
+  if (dom.btnLoadScores) {
+    dom.btnLoadScores.addEventListener('click', loadScoreEngine);
+  }
+}
+
+function clearScoreEngine() {
+  if (dom.scoreEmpty) {
+    dom.scoreEmpty.classList.remove('hidden');
+    dom.scoreEmpty.textContent = 'Select month(s) and click "Load Scores" to generate the forecast.';
+  }
+  if (dom.scoreLoading) dom.scoreLoading.classList.add('hidden');
+  if (dom.scoreSummary) dom.scoreSummary.classList.add('hidden');
+  if (dom.scoreResults) dom.scoreResults.classList.add('hidden');
+  if (dom.scoreBody) dom.scoreBody.innerHTML = '';
+  if (dom.scorePriorityBreakdown) dom.scorePriorityBreakdown.innerHTML = '';
+}
+
+function confidenceBadgeClass(confidence) {
+  if (confidence === 'high') return 'confidence-high';
+  if (confidence === 'medium') return 'confidence-medium';
+  return 'confidence-low';
+}
+
+function renderScoreEngine(data) {
+  if (!data || !data.groups || !data.groups.length) {
+    if (dom.scoreEmpty) {
+      dom.scoreEmpty.classList.remove('hidden');
+      dom.scoreEmpty.textContent = 'No data available for the selected months.';
+    }
+    if (dom.scoreResults) dom.scoreResults.classList.add('hidden');
+    if (dom.scoreSummary) dom.scoreSummary.classList.add('hidden');
+    return;
+  }
+
+  if (dom.scoreEmpty) dom.scoreEmpty.classList.add('hidden');
+
+  // Summary
+  if (dom.scoreSummary) {
+    const summary = data.summary || {};
+    const monthsLabel = Array.isArray(summary.monthsAnalyzed)
+      ? summary.monthsAnalyzed.join(', ')
+      : 'All months';
+    dom.scoreSummary.innerHTML = `
+      <div class="score-metric">
+        <span class="label">Tickets resolved</span>
+        <span class="value-sm">${summary.totalTicketsAnalyzed || 0}</span>
+      </div>
+      <div class="score-metric">
+        <span class="label">Groups scored</span>
+        <span class="value-sm">${summary.groupCount || 0}</span>
+      </div>
+      <div class="score-metric">
+        <span class="label">Months</span>
+        <span class="value-sm">${monthsLabel}</span>
+      </div>
+    `;
+    dom.scoreSummary.classList.remove('hidden');
+  }
+
+  // Build forecast map
+  const forecastMap = {};
+  (data.forecast || []).forEach((f) => {
+    forecastMap[f.assignmentGroup] = f;
+  });
+
+  // Table
+  if (dom.scoreBody) {
+    dom.scoreBody.innerHTML = '';
+
+    const top10 = data.groups.slice(0, 10);
+    const rest = data.groups.slice(10);
+
+    const maxComposite = Math.max(...data.groups.map((g) => g.compositeScore || 0), 1);
+
+    top10.forEach((group) => {
+      const forecast = forecastMap[group.assignmentGroup] || {};
+      const barWidth = Math.max(((group.compositeScore || 0) / maxComposite) * 100, 2);
+      const confidenceClass = confidenceBadgeClass(forecast.confidence);
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><span class="rank-badge rank-${group.rank <= 3 ? group.rank : 'default'}">${group.rank}</span></td>
+        <td><strong>${group.assignmentGroup}</strong></td>
+        <td>${group.ticketsReceived || group.ticketsResolved}</td>
+        <td>${group.ticketsResolved}</td>
+        <td>${group.resolutionRatePct || 0}%</td>
+        <td>${formatDuration(group.avgResolutionSeconds)}</td>
+        <td>${formatDuration(group.medianResolutionSeconds)}</td>
+        <td>
+          <div class="speed-bar-wrap">
+            <div class="speed-bar" style="width: ${Math.max(group.speedScore, 2)}%"></div>
+            <span>${group.speedScore}</span>
+          </div>
+        </td>
+        <td>
+          <div class="composite-bar-wrap">
+            <div class="composite-bar" style="width: ${barWidth}%"></div>
+            <span>${group.compositeScore}</span>
+          </div>
+        </td>
+        <td>
+          <span class="confidence-badge ${confidenceClass}">${forecast.forecastSharePct || 0}%</span>
+          <small class="confidence-label">${forecast.confidence || 'low'}</small>
+        </td>
+      `;
+      dom.scoreBody.appendChild(tr);
+    });
+
+    // Cluster remaining groups into "Others"
+    if (rest.length) {
+      const othersReceived = rest.reduce((s, g) => s + (g.ticketsReceived || g.ticketsResolved), 0);
+      const othersResolved = rest.reduce((s, g) => s + g.ticketsResolved, 0);
+      const othersRate = othersReceived > 0 ? Math.round(othersResolved * 1000 / othersReceived) / 10 : 0;
+      const othersAvgSecs = othersResolved > 0
+        ? Math.round(rest.reduce((s, g) => s + g.avgResolutionSeconds * g.ticketsResolved, 0) / othersResolved)
+        : 0;
+      const othersMedianSecs = othersResolved > 0
+        ? Math.round(rest.reduce((s, g) => s + g.medianResolutionSeconds * g.ticketsResolved, 0) / othersResolved)
+        : 0;
+      const othersSpeed = rest.length > 0
+        ? Math.round(rest.reduce((s, g) => s + g.speedScore, 0) / rest.length * 10) / 10
+        : 0;
+      const othersComposite = rest.length > 0
+        ? Math.round(rest.reduce((s, g) => s + g.compositeScore, 0) / rest.length * 10) / 10
+        : 0;
+      const othersBarWidth = Math.max((othersComposite / maxComposite) * 100, 2);
+
+      const tr = document.createElement('tr');
+      tr.className = 'others-row';
+      tr.innerHTML = `
+        <td><span class="rank-badge rank-default">…</span></td>
+        <td><strong>Others (${rest.length} groups)</strong></td>
+        <td>${othersReceived}</td>
+        <td>${othersResolved}</td>
+        <td>${othersRate}%</td>
+        <td>${formatDuration(othersAvgSecs)}</td>
+        <td>${formatDuration(othersMedianSecs)}</td>
+        <td>
+          <div class="speed-bar-wrap">
+            <div class="speed-bar" style="width: ${Math.max(othersSpeed, 2)}%"></div>
+            <span>${othersSpeed}</span>
+          </div>
+        </td>
+        <td>
+          <div class="composite-bar-wrap">
+            <div class="composite-bar" style="width: ${othersBarWidth}%"></div>
+            <span>${othersComposite}</span>
+          </div>
+        </td>
+        <td>—</td>
+      `;
+      dom.scoreBody.appendChild(tr);
+    }
+  }
+
+  // Priority breakdown for top 3 groups
+  if (dom.scorePriorityBreakdown) {
+    dom.scorePriorityBreakdown.innerHTML = '';
+    const topGroups = [...data.groups].sort((a, b) => b.ticketsResolved - a.ticketsResolved).slice(0, 3);
+    if (topGroups.length) {
+      const title = document.createElement('h3');
+      title.textContent = 'Priority Breakdown (Top 3 by Tickets Resolved)';
+      title.className = 'priority-title';
+      dom.scorePriorityBreakdown.appendChild(title);
+
+      const grid = document.createElement('div');
+      grid.className = 'priority-grid';
+
+      topGroups.forEach((group) => {
+        const pb = group.priorityBreakdown || {};
+        const card = document.createElement('div');
+        card.className = 'priority-card';
+        card.innerHTML = `
+          <h4>${group.assignmentGroup}</h4>
+          <div class="priority-bars">
+            ${['P1', 'P2', 'P3', 'P4', 'P5'].map((p) => {
+              const count = pb[p] || 0;
+              const pct = group.ticketsResolved > 0 ? Math.round((count / group.ticketsResolved) * 100) : 0;
+              return `<div class="priority-row">
+                <span class="priority-label priority-${p.toLowerCase()}">${p}</span>
+                <div class="priority-bar-track"><div class="priority-bar-fill priority-fill-${p.toLowerCase()}" style="width: ${pct}%"></div></div>
+                <span class="priority-count">${count} (${pct}%)</span>
+              </div>`;
+            }).join('')}
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+
+      dom.scorePriorityBreakdown.appendChild(grid);
+    }
+  }
+
+  if (dom.scoreResults) dom.scoreResults.classList.remove('hidden');
+}
+
+function renderScoreMonths() {
+  if (!dom.scoreMonthsList) return;
+  dom.scoreMonthsList.innerHTML = '';
+  state.months.forEach((month) => {
+    const selected = scoreState.selectedMonths.includes(month);
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = `score-month-chip${selected ? ' selected' : ''}`;
+    chip.textContent = monthToLabel(month);
+    chip.addEventListener('click', () => {
+      if (selected) {
+        scoreState.selectedMonths = scoreState.selectedMonths.filter((m) => m !== month);
+      } else {
+        scoreState.selectedMonths = [...scoreState.selectedMonths, month];
+      }
+      renderScoreMonths();
+    });
+    dom.scoreMonthsList.appendChild(chip);
+  });
+}
+
+async function loadScoreEngine() {
+  const monthsToUse = scoreState.selectedMonths.length ? scoreState.selectedMonths : state.months;
+
+  if (!monthsToUse.length) {
+    if (dom.scoreEmpty) {
+      dom.scoreEmpty.classList.remove('hidden');
+      dom.scoreEmpty.textContent = 'No months available yet. Wait for data to load.';
+    }
+    return;
+  }
+
+  if (dom.scoreEmpty) dom.scoreEmpty.classList.add('hidden');
+  if (dom.scoreLoading) dom.scoreLoading.classList.remove('hidden');
+  if (dom.scoreResults) dom.scoreResults.classList.add('hidden');
+  if (dom.scoreSummary) dom.scoreSummary.classList.add('hidden');
+
+  try {
+    const query = new URLSearchParams();
+    query.set('months', monthsToUse.join(','));
+    const data = await fetchJson(`${API_BASE}/api/ticket-lifecycle/score-engine?${query.toString()}`);
+    renderScoreEngine(data);
+  } catch (error) {
+    if (dom.scoreEmpty) {
+      dom.scoreEmpty.classList.remove('hidden');
+      dom.scoreEmpty.textContent = `Error loading scores: ${error.message}`;
+    }
+    console.error(error);
+  } finally {
+    if (dom.scoreLoading) dom.scoreLoading.classList.add('hidden');
+  }
 }
 
 async function init() {

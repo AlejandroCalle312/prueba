@@ -146,6 +146,19 @@
             <p class="hint">Select months to analyse resolved incidents (SMC assigned):</p>
             <div id="score-months-list" class="score-months-chips"></div>
           </div>
+          <div class="score-group-filter-wrap">
+            <p class="hint">Filter by assignment group:</p>
+            <div class="score-group-filter">
+              <button id="btn-group-filter" type="button" class="score-group-filter-toggle">All Groups ▾</button>
+              <div id="score-group-dropdown" class="score-group-dropdown hidden">
+                <div class="score-group-dropdown-actions">
+                  <button type="button" id="btn-group-select-all" class="score-group-action">Select All</button>
+                  <button type="button" id="btn-group-clear-all" class="score-group-action">Clear</button>
+                </div>
+                <div id="score-group-options" class="score-group-options"></div>
+              </div>
+            </div>
+          </div>
           <div id="score-empty" class="empty">Select month(s) and click "Load Scores" to generate the forecast.</div>
           <div id="score-loading" class="empty hidden">Analyzing tickets…</div>
           <div id="score-summary" class="score-summary hidden"></div>

@@ -58,10 +58,18 @@ const dom = {
   scoreBody: $('#score-body'),
   scorePriorityBreakdown: $('#score-priority-breakdown'),
   scoreMonthsList: $('#score-months-list'),
+  btnGroupFilter: $('#btn-group-filter'),
+  scoreGroupDropdown: $('#score-group-dropdown'),
+  scoreGroupOptions: $('#score-group-options'),
+  btnGroupSelectAll: $('#btn-group-select-all'),
+  btnGroupClearAll: $('#btn-group-clear-all'),
 };
 
 const scoreState = {
   selectedMonths: [],
+  allGroups: [],
+  selectedGroups: [],
+  lastData: null,
 };
 
 function normalise(value) {
@@ -503,6 +511,33 @@ function bindEvents() {
   if (dom.btnLoadScores) {
     dom.btnLoadScores.addEventListener('click', loadScoreEngine);
   }
+
+  if (dom.btnGroupFilter) {
+    dom.btnGroupFilter.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dom.scoreGroupDropdown.classList.toggle('hidden');
+    });
+    dom.scoreGroupDropdown.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+    document.addEventListener('click', () => {
+      dom.scoreGroupDropdown.classList.add('hidden');
+    });
+  }
+  if (dom.btnGroupSelectAll) {
+    dom.btnGroupSelectAll.addEventListener('click', () => {
+      scoreState.selectedGroups = [...scoreState.allGroups];
+      renderGroupFilter();
+      applyGroupFilter();
+    });
+  }
+  if (dom.btnGroupClearAll) {
+    dom.btnGroupClearAll.addEventListener('click', () => {
+      scoreState.selectedGroups = [];
+      renderGroupFilter();
+      applyGroupFilter();
+    });
+  }
 }
 
 function clearScoreEngine() {
@@ -515,6 +550,52 @@ function clearScoreEngine() {
   if (dom.scoreResults) dom.scoreResults.classList.add('hidden');
   if (dom.scoreBody) dom.scoreBody.innerHTML = '';
   if (dom.scorePriorityBreakdown) dom.scorePriorityBreakdown.innerHTML = '';
+  scoreState.allGroups = [];
+  scoreState.selectedGroups = [];
+  scoreState.lastData = null;
+  if (dom.btnGroupFilter) dom.btnGroupFilter.textContent = 'All Groups ▾';
+  if (dom.scoreGroupOptions) dom.scoreGroupOptions.innerHTML = '';
+}
+
+function renderGroupFilter() {
+  if (!dom.scoreGroupOptions) return;
+  dom.scoreGroupOptions.innerHTML = '';
+  scoreState.allGroups.forEach((name) => {
+    const selected = scoreState.selectedGroups.includes(name);
+    const label = document.createElement('label');
+    label.className = `score-group-option${selected ? ' selected' : ''}`;
+    label.innerHTML = `<input type="checkbox" ${selected ? 'checked' : ''}/> ${name}`;
+    label.querySelector('input').addEventListener('change', (e) => {
+      if (e.target.checked) {
+        scoreState.selectedGroups.push(name);
+      } else {
+        scoreState.selectedGroups = scoreState.selectedGroups.filter((g) => g !== name);
+      }
+      renderGroupFilter();
+      applyGroupFilter();
+    });
+    dom.scoreGroupOptions.appendChild(label);
+  });
+  // Update button label
+  if (dom.btnGroupFilter) {
+    const count = scoreState.selectedGroups.length;
+    if (count === 0 || count === scoreState.allGroups.length) {
+      dom.btnGroupFilter.textContent = 'All Groups ▾';
+    } else if (count === 1) {
+      dom.btnGroupFilter.textContent = scoreState.selectedGroups[0] + ' ▾';
+    } else {
+      dom.btnGroupFilter.textContent = `${count} groups selected ▾`;
+    }
+  }
+}
+
+function applyGroupFilter() {
+  if (!scoreState.lastData) return;
+  const data = scoreState.lastData;
+  const filtered = scoreState.selectedGroups.length > 0
+    ? data.groups.filter((g) => scoreState.selectedGroups.includes(g.assignmentGroup))
+    : data.groups;
+  renderScoreEngine({ ...data, groups: filtered }, true);
 }
 
 function confidenceBadgeClass(confidence) {
@@ -523,7 +604,7 @@ function confidenceBadgeClass(confidence) {
   return 'confidence-low';
 }
 
-function renderScoreEngine(data) {
+function renderScoreEngine(data, isFilterOnly) {
   if (!data || !data.groups || !data.groups.length) {
     if (dom.scoreEmpty) {
       dom.scoreEmpty.classList.remove('hidden');
@@ -536,8 +617,8 @@ function renderScoreEngine(data) {
 
   if (dom.scoreEmpty) dom.scoreEmpty.classList.add('hidden');
 
-  // Summary
-  if (dom.scoreSummary) {
+  // Summary (skip recalc on filter-only)
+  if (dom.scoreSummary && !isFilterOnly) {
     const summary = data.summary || {};
     const monthsLabel = Array.isArray(summary.monthsAnalyzed)
       ? summary.monthsAnalyzed.join(', ')
@@ -572,7 +653,7 @@ function renderScoreEngine(data) {
     const top10 = data.groups.slice(0, 10);
     const rest = data.groups.slice(10);
 
-    const grandTotal = data.summary?.totalTicketsAnalyzed || data.groups.reduce((s, g) => s + g.ticketsResolved, 0) || 1;
+    const grandTotal = (scoreState.lastData || data).summary?.totalTicketsAnalyzed || (scoreState.lastData || data).groups.reduce((s, g) => s + g.ticketsResolved, 0) || 1;
 
     top10.forEach((group) => {
       const forecast = forecastMap[group.assignmentGroup] || {};
@@ -726,6 +807,10 @@ async function loadScoreEngine() {
     const query = new URLSearchParams();
     query.set('months', monthsToUse.join(','));
     const data = await fetchJson(`${API_BASE}/api/ticket-lifecycle/score-engine?${query.toString()}`);
+    scoreState.lastData = data;
+    scoreState.allGroups = (data.groups || []).map((g) => g.assignmentGroup);
+    scoreState.selectedGroups = [];
+    renderGroupFilter();
     renderScoreEngine(data);
   } catch (error) {
     if (dom.scoreEmpty) {

@@ -130,6 +130,17 @@ El indicador de confianza compara el forecast con el share actual:
 
 Cuantos mas meses se seleccionen, mas precisa es la prediccion.
 
+### Filtro por grupo
+
+El dashboard incluye un desplegable multi-select que permite filtrar la tabla por uno o varios grupos de asignacion:
+
+- Aparece tras cargar los datos con "Load Scores".
+- Muestra todos los nombres de grupos con checkboxes.
+- Botones "Select All" / "Clear" para seleccionar o deseleccionar todos.
+- La tabla se actualiza al instante al cambiar la seleccion (sin recargar datos).
+- Si no se selecciona ninguno, se muestra la vista completa (top 10 + Others).
+- El resumen (Resolved Tickets, Scored Groups) se mantiene con los totales originales.
+
 ### Filtros aplicados en la query
 
 - Solo incidencias: `type LIKE '%incident%'`

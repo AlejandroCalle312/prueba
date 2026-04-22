@@ -1,11 +1,11 @@
-# Mini proyecto: React + Node + Databricks
+# SRF Databricks Web App
 
-Proyecto local preparado para:
+Web application for IT Service Management analytics, deployed on Azure Web App.
 
-- Frontend en React que muestra una tabla de Databricks.
-- Backend en Node.js/Express que expone API y sirve el frontend en produccion.
-- Autenticacion a Databricks por App Registration (OAuth client credentials).
-- Configuracion con variables de entorno para despliegue en Azure Web App.
+- FastAPI backend connected to Databricks SQL Warehouse.
+- Static frontend serving Ticket Lifecycle and Resolution Score Engine dashboards.
+- Authentication via Azure Entra ID (client credentials).
+- Data sourced from Jira tickets and activity tables in Databricks (`axsa_prod_bronze`).
 
 ## Estado y memoria del proyecto
 

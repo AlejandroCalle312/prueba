@@ -68,6 +68,7 @@ const dom = {
   scoreGroupOptions: $('#score-group-options'),
   btnGroupSelectAll: $('#btn-group-select-all'),
   btnGroupClearAll: $('#btn-group-clear-all'),
+  scoreGroupSearch: $('#score-group-search'),
 };
 
 const scoreState = {
@@ -568,6 +569,11 @@ function bindEvents() {
       applyGroupFilter();
     });
   }
+  if (dom.scoreGroupSearch) {
+    dom.scoreGroupSearch.addEventListener('input', () => {
+      renderGroupFilter(dom.scoreGroupSearch.value);
+    });
+  }
 }
 
 function clearScoreEngine() {
@@ -585,13 +591,16 @@ function clearScoreEngine() {
   scoreState.lastData = null;
   if (dom.btnGroupFilter) dom.btnGroupFilter.textContent = 'All Groups ▾';
   if (dom.scoreGroupOptions) dom.scoreGroupOptions.innerHTML = '';
+  if (dom.scoreGroupSearch) dom.scoreGroupSearch.value = '';
   if (dom.btnMonthFilter) dom.btnMonthFilter.textContent = 'All Months ▾';
 }
 
-function renderGroupFilter() {
+function renderGroupFilter(searchTerm) {
   if (!dom.scoreGroupOptions) return;
   dom.scoreGroupOptions.innerHTML = '';
+  const filter = (searchTerm || '').toLowerCase();
   scoreState.allGroups.forEach((name) => {
+    if (filter && !name.toLowerCase().includes(filter)) return;
     const selected = scoreState.selectedGroups.includes(name);
     const label = document.createElement('label');
     label.className = `score-group-option${selected ? ' selected' : ''}`;
@@ -602,7 +611,7 @@ function renderGroupFilter() {
       } else {
         scoreState.selectedGroups = scoreState.selectedGroups.filter((g) => g !== name);
       }
-      renderGroupFilter();
+      renderGroupFilter(dom.scoreGroupSearch ? dom.scoreGroupSearch.value : '');
       applyGroupFilter();
     });
     dom.scoreGroupOptions.appendChild(label);

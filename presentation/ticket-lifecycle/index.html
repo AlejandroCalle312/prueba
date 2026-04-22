@@ -6,7 +6,7 @@
   <meta name="description" content="Ticket lifecycle analytics with assignment-group time segmentation" />
   <title>Ticket Lifecycle - SRF-AXSA Analytics</title>
   <link rel="stylesheet" href="../shared/nav.css" />
-  <link rel="stylesheet" href="styles.css?v=month-dropdown-20260422" />
+  <link rel="stylesheet" href="styles.css?v=group-search-20260422" />
   <script>
     window.APP_CONFIG = { apiBase: '%%API_BASE_URL%%' };
   </script>
@@ -161,6 +161,7 @@
               <button id="btn-group-filter" type="button" class="score-group-filter-toggle">All Groups ▾</button>
               <div id="score-group-dropdown" class="score-group-dropdown hidden">
                 <div class="score-group-dropdown-actions">
+                  <input id="score-group-search" type="search" class="score-group-search" placeholder="Search group..." />
                   <button type="button" id="btn-group-select-all" class="score-group-action">Select All</button>
                   <button type="button" id="btn-group-clear-all" class="score-group-action">Clear</button>
                 </div>
@@ -196,7 +197,7 @@
     </section>
   </main>
 
-  <script src="app.js?v=month-dropdown-20260422"></script>
+  <script src="app.js?v=group-search-20260422"></script>
   <script src="../shared/nav.js"></script>
 </body>
 </html>

@@ -442,9 +442,24 @@ body {
 
 .score-group-dropdown-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 8px 10px;
   border-bottom: 1px solid var(--line);
+}
+
+.score-group-search {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+}
+
+.score-group-search:focus {
+  border-color: var(--brand);
 }
 
 .score-group-action {

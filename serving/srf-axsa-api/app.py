@@ -508,6 +508,18 @@ async def invalidate_cache(
     return {"status": "cache cleared"}
 
 
+# Prevent browsers/proxies from caching HTML pages.
+@app.middleware("http")
+async def no_cache_html(request, call_next):
+    response = await call_next(request)
+    ct = response.headers.get("content-type", "")
+    if "text/html" in ct:
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
+
 # Serve the presentation assets from the same domain in production.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PRESENTATION_ROOT = _REPO_ROOT / "presentation"

@@ -1374,8 +1374,9 @@ class DatabricksClient:
             month_filter = f"AND DATE_FORMAT({local_updated_expr}, 'yyyy-MM') IN ({month_list})"
 
         sql = f"""
-            WITH all_tickets AS (
+            WITH ticket_pool AS (
                 SELECT
+                    CAST({_TICKET_ID_COLUMN} AS STRING) AS ticket_id,
                     COALESCE(NULLIF(TRIM({assignment_group_column}), ''), 'Unknown') AS assignment_group
                 FROM {_TICKETS_TABLE}
                 WHERE created_in IS NOT NULL
@@ -1384,10 +1385,22 @@ class DatabricksClient:
                   {smc_filter}
                   {month_filter}
             ),
+            group_assignments AS (
+                SELECT a.ticket_id,
+                       TRIM(ELEMENT_AT(SPLIT(a.content, ' --> '), 2)) AS to_group
+                FROM {_ACTIVITY_TABLE} a
+                INNER JOIN ticket_pool tp ON a.ticket_id = tp.ticket_id
+                WHERE a.updated = 'Assignment group'
+                  AND a.content LIKE '%-->%'
+                UNION
+                SELECT ticket_id, assignment_group AS to_group
+                FROM ticket_pool
+            ),
             received_per_group AS (
-                SELECT assignment_group, COUNT(*) AS tickets_received
-                FROM all_tickets
-                GROUP BY assignment_group
+                SELECT to_group AS assignment_group,
+                       COUNT(DISTINCT ticket_id) AS tickets_received
+                FROM group_assignments
+                GROUP BY to_group
             ),
             resolved_tickets AS (
                 SELECT
@@ -1480,14 +1493,92 @@ class DatabricksClient:
         for idx, group in enumerate(scored_groups):
             group["rank"] = idx + 1
 
-        # Forecast: predict next-month resolution share per group
+        # Forecast: trend-based prediction using per-month share data
         forecast = []
-        for group in scored_groups:
-            forecast.append({
-                "assignmentGroup": group["assignmentGroup"],
-                "forecastSharePct": group["resolutionSharePct"],
-                "confidence": "high" if group["ticketsResolved"] >= 20 else "medium" if group["ticketsResolved"] >= 5 else "low",
-            })
+        if months and len(months) >= 2:
+            # Query per-month resolved counts per group
+            trend_sql = f"""
+                SELECT
+                    DATE_FORMAT({local_updated_expr}, 'yyyy-MM') AS month,
+                    COALESCE(NULLIF(TRIM({assignment_group_column}), ''), 'Unknown') AS assignment_group,
+                    COUNT(*) AS resolved
+                FROM {_TICKETS_TABLE}
+                WHERE created_in IS NOT NULL
+                  AND {timeline_column} IS NOT NULL
+                  AND {score_status_filter}
+                  AND {score_type_filter}
+                  {smc_filter}
+                  AND UNIX_TIMESTAMP({timeline_column}) - UNIX_TIMESTAMP(created_in) > 0
+                  {month_filter}
+                GROUP BY DATE_FORMAT({local_updated_expr}, 'yyyy-MM'),
+                         COALESCE(NULLIF(TRIM({assignment_group_column}), ''), 'Unknown')
+            """
+            trend_rows = self._execute(trend_sql)
+
+            # Build per-month totals and per-group-month resolved
+            month_totals: dict[str, int] = {}
+            group_month: dict[str, dict[str, int]] = {}
+            for tr in trend_rows:
+                m = str(tr.get("month") or "")
+                grp = str(tr.get("assignment_group") or "Unknown")
+                res = int(tr.get("resolved") or 0)
+                month_totals[m] = month_totals.get(m, 0) + res
+                group_month.setdefault(grp, {})[m] = res
+
+            sorted_months = sorted(month_totals.keys())
+
+            for group in scored_groups:
+                grp_name = group["assignmentGroup"]
+                gm = group_month.get(grp_name, {})
+                shares = []
+                for m in sorted_months:
+                    total_m = month_totals.get(m, 1)
+                    shares.append(round(gm.get(m, 0) / max(total_m, 1) * 100, 1))
+
+                # Linear trend: y = a + b*x, predict x = len(shares)
+                n = len(shares)
+                if n >= 2:
+                    x_vals = list(range(n))
+                    x_mean = sum(x_vals) / n
+                    y_mean = sum(shares) / n
+                    num = sum((x_vals[i] - x_mean) * (shares[i] - y_mean) for i in range(n))
+                    den = sum((x_vals[i] - x_mean) ** 2 for i in range(n))
+                    slope = num / den if den != 0 else 0
+                    intercept = y_mean - slope * x_mean
+                    predicted = round(max(intercept + slope * n, 0), 1)
+                else:
+                    predicted = shares[0] if shares else group["resolutionSharePct"]
+
+                trend_dir = "stable"
+                if n >= 2:
+                    if slope > 0.5:
+                        trend_dir = "up"
+                    elif slope < -0.5:
+                        trend_dir = "down"
+
+                current_share = group["resolutionSharePct"]
+                if predicted > current_share + 0.5:
+                    confidence = "high"
+                elif predicted < current_share - 0.5:
+                    confidence = "low"
+                else:
+                    confidence = "medium"
+                forecast.append({
+                    "assignmentGroup": grp_name,
+                    "forecastSharePct": predicted,
+                    "trend": trend_dir,
+                    "confidence": confidence,
+                    "monthlyShares": {m: shares[i] for i, m in enumerate(sorted_months)},
+                })
+        else:
+            # Single month or no months: fallback to current share
+            for group in scored_groups:
+                forecast.append({
+                    "assignmentGroup": group["assignmentGroup"],
+                    "forecastSharePct": group["resolutionSharePct"],
+                    "trend": "stable",
+                    "confidence": "high" if group["ticketsResolved"] >= 20 else "medium" if group["ticketsResolved"] >= 5 else "low",
+                })
 
         return {
             "groups": scored_groups,

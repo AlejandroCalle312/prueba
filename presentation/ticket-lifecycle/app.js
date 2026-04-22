@@ -544,11 +544,11 @@ function renderScoreEngine(data) {
       : 'All months';
     dom.scoreSummary.innerHTML = `
       <div class="score-metric">
-        <span class="label">Tickets resolved</span>
+        <span class="label">Resolved Tickets</span>
         <span class="value-sm">${summary.totalTicketsAnalyzed || 0}</span>
       </div>
       <div class="score-metric">
-        <span class="label">Groups scored</span>
+        <span class="label">Scored Groups</span>
         <span class="value-sm">${summary.groupCount || 0}</span>
       </div>
       <div class="score-metric">
@@ -572,12 +572,14 @@ function renderScoreEngine(data) {
     const top10 = data.groups.slice(0, 10);
     const rest = data.groups.slice(10);
 
-    const maxComposite = Math.max(...data.groups.map((g) => g.compositeScore || 0), 1);
+    const grandTotal = data.summary?.totalTicketsAnalyzed || data.groups.reduce((s, g) => s + g.ticketsResolved, 0) || 1;
 
     top10.forEach((group) => {
       const forecast = forecastMap[group.assignmentGroup] || {};
-      const barWidth = Math.max(((group.compositeScore || 0) / maxComposite) * 100, 2);
+      const sharePct = Math.round(group.ticketsResolved / grandTotal * 1000) / 10;
       const confidenceClass = confidenceBadgeClass(forecast.confidence);
+      const trendIcon = forecast.trend === 'up' ? '&#9650;' : forecast.trend === 'down' ? '&#9660;' : '&#9654;';
+      const trendClass = forecast.trend === 'up' ? 'trend-up' : forecast.trend === 'down' ? 'trend-down' : 'trend-stable';
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><span class="rank-badge rank-${group.rank <= 3 ? group.rank : 'default'}">${group.rank}</span></td>
@@ -585,6 +587,7 @@ function renderScoreEngine(data) {
         <td>${group.ticketsReceived || group.ticketsResolved}</td>
         <td>${group.ticketsResolved}</td>
         <td>${group.resolutionRatePct || 0}%</td>
+        <td>${sharePct}%</td>
         <td>${formatDuration(group.avgResolutionSeconds)}</td>
         <td>${formatDuration(group.medianResolutionSeconds)}</td>
         <td>
@@ -594,13 +597,8 @@ function renderScoreEngine(data) {
           </div>
         </td>
         <td>
-          <div class="composite-bar-wrap">
-            <div class="composite-bar" style="width: ${barWidth}%"></div>
-            <span>${group.compositeScore}</span>
-          </div>
-        </td>
-        <td>
           <span class="confidence-badge ${confidenceClass}">${forecast.forecastSharePct || 0}%</span>
+          <span class="${trendClass}">${trendIcon}</span>
           <small class="confidence-label">${forecast.confidence || 'low'}</small>
         </td>
       `;
@@ -621,10 +619,7 @@ function renderScoreEngine(data) {
       const othersSpeed = rest.length > 0
         ? Math.round(rest.reduce((s, g) => s + g.speedScore, 0) / rest.length * 10) / 10
         : 0;
-      const othersComposite = rest.length > 0
-        ? Math.round(rest.reduce((s, g) => s + g.compositeScore, 0) / rest.length * 10) / 10
-        : 0;
-      const othersBarWidth = Math.max((othersComposite / maxComposite) * 100, 2);
+      const othersSharePct = Math.round(othersResolved / grandTotal * 1000) / 10;
 
       const tr = document.createElement('tr');
       tr.className = 'others-row';
@@ -634,18 +629,13 @@ function renderScoreEngine(data) {
         <td>${othersReceived}</td>
         <td>${othersResolved}</td>
         <td>${othersRate}%</td>
+        <td>${othersSharePct}%</td>
         <td>${formatDuration(othersAvgSecs)}</td>
         <td>${formatDuration(othersMedianSecs)}</td>
         <td>
           <div class="speed-bar-wrap">
             <div class="speed-bar" style="width: ${Math.max(othersSpeed, 2)}%"></div>
             <span>${othersSpeed}</span>
-          </div>
-        </td>
-        <td>
-          <div class="composite-bar-wrap">
-            <div class="composite-bar" style="width: ${othersBarWidth}%"></div>
-            <span>${othersComposite}</span>
           </div>
         </td>
         <td>—</td>

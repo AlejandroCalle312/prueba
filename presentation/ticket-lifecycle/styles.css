@@ -548,6 +548,10 @@ body {
   margin-top: 2px;
 }
 
+.trend-up { color: #1f7a4d; font-size: 10px; margin-left: 2px; }
+.trend-down { color: #c62828; font-size: 10px; margin-left: 2px; }
+.trend-stable { color: #b8860b; font-size: 10px; margin-left: 2px; }
+
 .priority-title {
   font-size: 15px;
   margin: 14px 0 8px;

@@ -33,76 +33,59 @@ Web application for IT Service Management analytics, deployed on Azure Web App.
 
 ## Estructura
 
-- `frontend`: aplicacion React (Vite)
-- `backend`: API Express + cliente Databricks
+- `serving/srf-axsa-api/` — Backend FastAPI (Python, uvicorn) + cliente Databricks SQL
+- `presentation/ticket-lifecycle/` — Frontend estatico (HTML, JS, CSS) con dashboards de Ticket Lifecycle y Score Engine
 
 ## Requisitos
 
-- Node.js 20+
-- Credenciales de App Registration con permisos en Databricks
+- Python 3.12+
+- Credenciales de Azure Entra ID con permisos en Databricks (o Azure CLI autenticado)
 - SQL Warehouse habilitado en Databricks
 
 ## Configuracion local
 
-1. Configura variables en `backend/.env`.
-2. Opcional: ajusta `frontend/.env` si necesitas `VITE_API_BASE_URL`.
+1. Configura variables en `serving/srf-axsa-api/.env` (ver `.env.example`).
+2. Opcional: ajusta `presentation/ticket-lifecycle/app-config.local.js` para apuntar la API a otro host.
 
-## Ejecutar en local (modo desarrollo)
+## Ejecutar en local
 
-Terminal 1:
-
-```bash
-cd backend
-npm run dev
-```
-
-Terminal 2:
+Terminal 1 (backend):
 
 ```bash
-cd frontend
-npm run dev
+cd serving/srf-axsa-api
+pip install -r requirements.txt
+python -m uvicorn app:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-Frontend: http://localhost:5173
-Backend: http://localhost:3001
+Terminal 2 (frontend):
+
+```bash
+cd presentation/ticket-lifecycle
+python -m http.server 3000
+```
+
+Frontend: http://localhost:3000
+Backend API: http://localhost:8000
 
 ## Probar endpoint
 
 ```bash
-curl "http://localhost:3001/api/databricks/tables?catalog=main&schema=default&limit=100"
+curl "http://localhost:8000/api/ticket-lifecycle/score-engine?months=2026-02,2026-03"
 ```
-
-## Build para produccion
-
-```bash
-cd frontend
-npm run build
-cd ../backend
-npm start
-```
-
-Cuando existe `frontend/dist`, el backend sirve el frontend y la API desde el mismo host.
 
 ## Azure Web App
 
-Configura estas Application Settings en Azure (no en codigo):
+Configura estas Application Settings en Azure:
 
-- `DATABRICKS_HOST`
-- `DATABRICKS_CLIENT_ID`
+- `DATABRICKS_WORKSPACE_URL`
+- `DATABRICKS_HTTP_PATH`
+- `DATABRICKS_TICKETS_TABLE`
+- `DATABRICKS_CLIENT_ID` (si usas client credentials)
 - `DATABRICKS_CLIENT_SECRET`
-- `AZURE_TENANT_ID` (si usas App Registration de Entra ID)
-- `DATABRICKS_SQL_WAREHOUSE_ID`
-- `DATABRICKS_DEFAULT_CATALOG` (opcional)
-- `DATABRICKS_DEFAULT_SCHEMA` (opcional)
-- `PORT` (opcional, Azure suele inyectarla)
+- `AZURE_TENANT_ID`
+- `CORS_ALLOWED_ORIGINS`
 
-Comando de inicio recomendado en Azure Web App:
-
-```bash
-node backend/server.js
-```
-
-Asegurate de desplegar tambien `frontend/dist` (compilado) junto al backend.
+El despliegue se realiza automaticamente via GitHub Actions al hacer push a `main`.
 
 ---
 

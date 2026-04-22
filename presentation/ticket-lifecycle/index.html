@@ -6,7 +6,7 @@
   <meta name="description" content="Ticket lifecycle analytics with assignment-group time segmentation" />
   <title>Ticket Lifecycle - SRF-AXSA Analytics</title>
   <link rel="stylesheet" href="../shared/nav.css" />
-  <link rel="stylesheet" href="styles.css?v=group-filter-20260422" />
+  <link rel="stylesheet" href="styles.css?v=month-dropdown-20260422" />
   <script>
     window.APP_CONFIG = { apiBase: '%%API_BASE_URL%%' };
   </script>
@@ -144,7 +144,16 @@
           </div>
           <div class="score-months-wrap">
             <p class="hint">Select months to analyse resolved incidents (SMC assigned):</p>
-            <div id="score-months-list" class="score-months-chips"></div>
+            <div class="score-month-filter">
+              <button id="btn-month-filter" type="button" class="score-month-filter-toggle">All Months ▾</button>
+              <div id="score-month-dropdown" class="score-month-dropdown hidden">
+                <div class="score-group-dropdown-actions">
+                  <button type="button" id="btn-month-select-all" class="score-group-action">Select All</button>
+                  <button type="button" id="btn-month-clear-all" class="score-group-action">Clear</button>
+                </div>
+                <div id="score-month-options" class="score-group-options"></div>
+              </div>
+            </div>
           </div>
           <div class="score-group-filter-wrap">
             <p class="hint">Filter by assignment group:</p>
@@ -187,7 +196,7 @@
     </section>
   </main>
 
-  <script src="app.js?v=group-filter-20260422"></script>
+  <script src="app.js?v=month-dropdown-20260422"></script>
   <script src="../shared/nav.js"></script>
 </body>
 </html>

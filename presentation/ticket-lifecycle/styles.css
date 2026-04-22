@@ -490,6 +490,49 @@ body {
   accent-color: var(--brand);
 }
 
+.score-month-filter {
+  position: relative;
+  display: inline-block;
+}
+
+.score-month-filter-toggle {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  color: var(--ink);
+  min-width: 180px;
+  text-align: left;
+}
+
+.score-month-filter-toggle:hover {
+  background: #f4f9ff;
+  border-color: var(--brand);
+}
+
+.score-month-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 100;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.12);
+  min-width: 220px;
+  max-height: 320px;
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+}
+
+.score-month-dropdown.hidden {
+  display: none;
+}
+
 .score-months-chips {
   display: flex;
   flex-wrap: wrap;

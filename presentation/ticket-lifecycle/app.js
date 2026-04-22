@@ -58,6 +58,11 @@ const dom = {
   scoreBody: $('#score-body'),
   scorePriorityBreakdown: $('#score-priority-breakdown'),
   scoreMonthsList: $('#score-months-list'),
+  btnMonthFilter: $('#btn-month-filter'),
+  scoreMonthDropdown: $('#score-month-dropdown'),
+  scoreMonthOptions: $('#score-month-options'),
+  btnMonthSelectAll: $('#btn-month-select-all'),
+  btnMonthClearAll: $('#btn-month-clear-all'),
   btnGroupFilter: $('#btn-group-filter'),
   scoreGroupDropdown: $('#score-group-dropdown'),
   scoreGroupOptions: $('#score-group-options'),
@@ -512,6 +517,31 @@ function bindEvents() {
     dom.btnLoadScores.addEventListener('click', loadScoreEngine);
   }
 
+  if (dom.btnMonthFilter) {
+    dom.btnMonthFilter.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dom.scoreMonthDropdown.classList.toggle('hidden');
+    });
+    dom.scoreMonthDropdown.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+    document.addEventListener('click', () => {
+      dom.scoreMonthDropdown.classList.add('hidden');
+    });
+  }
+  if (dom.btnMonthSelectAll) {
+    dom.btnMonthSelectAll.addEventListener('click', () => {
+      scoreState.selectedMonths = [...state.months];
+      renderScoreMonths();
+    });
+  }
+  if (dom.btnMonthClearAll) {
+    dom.btnMonthClearAll.addEventListener('click', () => {
+      scoreState.selectedMonths = [];
+      renderScoreMonths();
+    });
+  }
+
   if (dom.btnGroupFilter) {
     dom.btnGroupFilter.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -555,6 +585,7 @@ function clearScoreEngine() {
   scoreState.lastData = null;
   if (dom.btnGroupFilter) dom.btnGroupFilter.textContent = 'All Groups ▾';
   if (dom.scoreGroupOptions) dom.scoreGroupOptions.innerHTML = '';
+  if (dom.btnMonthFilter) dom.btnMonthFilter.textContent = 'All Months ▾';
 }
 
 function renderGroupFilter() {
@@ -767,24 +798,34 @@ function renderScoreEngine(data, isFilterOnly) {
 }
 
 function renderScoreMonths() {
-  if (!dom.scoreMonthsList) return;
-  dom.scoreMonthsList.innerHTML = '';
+  if (!dom.scoreMonthOptions) return;
+  dom.scoreMonthOptions.innerHTML = '';
   state.months.forEach((month) => {
     const selected = scoreState.selectedMonths.includes(month);
-    const chip = document.createElement('button');
-    chip.type = 'button';
-    chip.className = `score-month-chip${selected ? ' selected' : ''}`;
-    chip.textContent = monthToLabel(month);
-    chip.addEventListener('click', () => {
-      if (selected) {
-        scoreState.selectedMonths = scoreState.selectedMonths.filter((m) => m !== month);
+    const label = document.createElement('label');
+    label.className = `score-group-option${selected ? ' selected' : ''}`;
+    label.innerHTML = `<input type="checkbox" ${selected ? 'checked' : ''}/> ${monthToLabel(month)}`;
+    label.querySelector('input').addEventListener('change', (e) => {
+      if (e.target.checked) {
+        scoreState.selectedMonths.push(month);
       } else {
-        scoreState.selectedMonths = [...scoreState.selectedMonths, month];
+        scoreState.selectedMonths = scoreState.selectedMonths.filter((m) => m !== month);
       }
       renderScoreMonths();
     });
-    dom.scoreMonthsList.appendChild(chip);
+    dom.scoreMonthOptions.appendChild(label);
   });
+  // Update button label
+  if (dom.btnMonthFilter) {
+    const count = scoreState.selectedMonths.length;
+    if (count === 0 || count === state.months.length) {
+      dom.btnMonthFilter.textContent = 'All Months ▾';
+    } else if (count === 1) {
+      dom.btnMonthFilter.textContent = monthToLabel(scoreState.selectedMonths[0]) + ' ▾';
+    } else {
+      dom.btnMonthFilter.textContent = `${count} months selected ▾`;
+    }
+  }
 }
 
 async function loadScoreEngine() {

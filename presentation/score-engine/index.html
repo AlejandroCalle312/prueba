@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Resolution Score Engine - Assignment group performance analytics" />
+  <title>Score Engine - SRF-AXSA Analytics</title>
+  <link rel="stylesheet" href="../shared/nav.css" />
+  <link rel="stylesheet" href="styles.css?v=standalone-20260423" />
+  <script>
+    window.APP_CONFIG = { apiBase: '%%API_BASE_URL%%' };
+  </script>
+  <script src="app-config.local.js"></script>
+</head>
+<body>
+  <a href="#main" class="skip-link">Skip to main content</a>
+
+  <main class="page" id="main">
+    <header class="header">
+      <div>
+        <h1>Resolution Score Engine</h1>
+        <p>Forecast based on resolved ticket ownership, speed, and volume.</p>
+      </div>
+      <button id="btn-load-scores" type="button" class="btn btn-primary">Load Scores</button>
+    </header>
+
+    <section class="filters-row">
+      <div class="filter-block">
+        <p class="hint">Select months to analyse resolved incidents (SMC assigned):</p>
+        <div class="score-month-filter">
+          <button id="btn-month-filter" type="button" class="filter-toggle">All Months ▾</button>
+          <div id="score-month-dropdown" class="filter-dropdown hidden">
+            <div class="dropdown-actions">
+              <button type="button" id="btn-month-select-all" class="dropdown-action">Select All</button>
+              <button type="button" id="btn-month-clear-all" class="dropdown-action">Clear</button>
+            </div>
+            <div id="score-month-options" class="dropdown-options"></div>
+          </div>
+        </div>
+      </div>
+      <div class="filter-block">
+        <p class="hint">Filter by assignment group:</p>
+        <div class="score-group-filter">
+          <button id="btn-group-filter" type="button" class="filter-toggle">All Groups ▾</button>
+          <div id="score-group-dropdown" class="filter-dropdown hidden">
+            <div class="dropdown-actions">
+              <input id="score-group-search" type="search" class="dropdown-search" placeholder="Search group..." />
+              <button type="button" id="btn-group-select-all" class="dropdown-action">Select All</button>
+              <button type="button" id="btn-group-clear-all" class="dropdown-action">Clear</button>
+            </div>
+            <div id="score-group-options" class="dropdown-options"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div id="score-empty" class="empty">Select month(s) and click "Load Scores" to generate the forecast.</div>
+    <div id="score-loading" class="empty hidden">Analyzing tickets…</div>
+    <div id="score-summary" class="score-summary hidden"></div>
+    <div id="score-results" class="hidden">
+      <table class="table score-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Assignment Group</th>
+            <th>Received</th>
+            <th>Resolved</th>
+            <th>Rate</th>
+            <th>Share</th>
+            <th>Avg Resolution</th>
+            <th>Median</th>
+            <th>Speed Score</th>
+            <th>Forecast</th>
+          </tr>
+        </thead>
+        <tbody id="score-body"></tbody>
+      </table>
+      <div id="score-priority-breakdown" class="priority-breakdown"></div>
+    </div>
+  </main>
+
+  <script src="app.js?v=standalone-20260423"></script>
+  <script src="../shared/nav.js"></script>
+</body>
+</html>

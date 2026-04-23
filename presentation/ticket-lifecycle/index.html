@@ -134,70 +134,11 @@
           <ul id="activity-list" class="timeline hidden"></ul>
         </article>
 
-        <article class="card score-engine-card">
-          <div class="score-header">
-            <div>
-              <h2>Resolution Score Engine</h2>
-              <p class="hint">Forecast based on resolved ticket ownership, speed, and volume.</p>
-            </div>
-            <button id="btn-load-scores" type="button" class="btn btn-primary">Load Scores</button>
-          </div>
-          <div class="score-months-wrap">
-            <p class="hint">Select months to analyse resolved incidents (SMC assigned):</p>
-            <div class="score-month-filter">
-              <button id="btn-month-filter" type="button" class="score-month-filter-toggle">All Months ▾</button>
-              <div id="score-month-dropdown" class="score-month-dropdown hidden">
-                <div class="score-group-dropdown-actions">
-                  <button type="button" id="btn-month-select-all" class="score-group-action">Select All</button>
-                  <button type="button" id="btn-month-clear-all" class="score-group-action">Clear</button>
-                </div>
-                <div id="score-month-options" class="score-group-options"></div>
-              </div>
-            </div>
-          </div>
-          <div class="score-group-filter-wrap">
-            <p class="hint">Filter by assignment group:</p>
-            <div class="score-group-filter">
-              <button id="btn-group-filter" type="button" class="score-group-filter-toggle">All Groups ▾</button>
-              <div id="score-group-dropdown" class="score-group-dropdown hidden">
-                <div class="score-group-dropdown-actions">
-                  <input id="score-group-search" type="search" class="score-group-search" placeholder="Search group..." />
-                  <button type="button" id="btn-group-select-all" class="score-group-action">Select All</button>
-                  <button type="button" id="btn-group-clear-all" class="score-group-action">Clear</button>
-                </div>
-                <div id="score-group-options" class="score-group-options"></div>
-              </div>
-            </div>
-          </div>
-          <div id="score-empty" class="empty">Select month(s) and click "Load Scores" to generate the forecast.</div>
-          <div id="score-loading" class="empty hidden">Analyzing tickets…</div>
-          <div id="score-summary" class="score-summary hidden"></div>
-          <div id="score-results" class="hidden">
-            <table class="table score-table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Assignment Group</th>
-                  <th>Received</th>
-                  <th>Resolved</th>
-                  <th>Rate</th>
-                  <th>Share</th>
-                  <th>Avg Resolution</th>
-                  <th>Median</th>
-                  <th>Speed Score</th>
-                  <th>Forecast</th>
-                </tr>
-              </thead>
-              <tbody id="score-body"></tbody>
-            </table>
-            <div id="score-priority-breakdown" class="priority-breakdown"></div>
-          </div>
-        </article>
       </section>
     </section>
   </main>
 
-  <script src="app.js?v=group-search-20260422"></script>
+  <script src="app.js?v=score-engine-extracted-20260422"></script>
   <script src="../shared/nav.js"></script>
 </body>
 </html>

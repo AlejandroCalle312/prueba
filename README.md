@@ -34,7 +34,10 @@ Web application for IT Service Management analytics, deployed on Azure Web App.
 ## Estructura
 
 - `serving/srf-axsa-api/` — Backend FastAPI (Python, uvicorn) + cliente Databricks SQL
-- `presentation/ticket-lifecycle/` — Frontend estatico (HTML, JS, CSS) con dashboards de Ticket Lifecycle y Score Engine
+- `presentation/ticket-lifecycle/` — Frontend estatico (HTML, JS, CSS) con dashboard de Ticket Lifecycle
+- `presentation/score-engine/` — Frontend estatico (HTML, JS, CSS) con dashboard de Resolution Score Engine
+- `presentation/home/` — Pagina Home con enlaces a todos los dashboards
+- `presentation/shared/` — Navegacion global compartida (nav.js, nav.css)
 
 ## Requisitos
 
@@ -157,7 +160,9 @@ El conteo de tickets recibidos por grupo se calcula cruzando la tabla de tickets
 
 - `serving/srf-axsa-api/databricks_client.py` — Metodo `_fetch_score_engine()` con la query SQL principal y el calculo de forecast.
 - `serving/srf-axsa-api/app.py` — Endpoint `GET /api/ticket-lifecycle/score-engine?months=...&limit=...`
-- `presentation/ticket-lifecycle/app.js` — Logica del frontend (tabla, flechas de tendencia, clustering de Others).
+- `presentation/score-engine/app.js` — Logica del frontend (tabla, flechas de tendencia, clustering de Others).
+- `presentation/score-engine/index.html` — Pagina standalone del Score Engine.
+- `presentation/score-engine/styles.css` — Estilos del Score Engine.
 - `presentation/ticket-lifecycle/index.html` — Estructura HTML de la tabla.
 - `presentation/ticket-lifecycle/styles.css` — Estilos (barras de velocidad, badges de confianza, flechas de tendencia).
 

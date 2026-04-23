@@ -15,7 +15,7 @@
     { href: base3000 + '/tickets-by-hour.html', label: 'Tickets by Hour', match: function () { return path.indexOf('tickets-by-hour.html') >= 0; } },
     { href: base3000 + '/tickets-per-agent/index.html', label: 'Tickets per Agent', match: function () { return path.indexOf('/tickets-per-agent/') >= 0; } },
     { href: base3000 + '/ticket-lifecycle/index.html', label: 'Ticket Lifecycle', match: function () { return path.indexOf('/ticket-lifecycle/') >= 0; } },
-    { href: base3000 + '/score-engine/index.html', label: 'Score Engine', match: function () { return path.indexOf('/score-engine/') >= 0; } },
+    { href: base3000 + '/score-engine/index.html', label: 'Resolution Score Engine', match: function () { return path.indexOf('/score-engine/') >= 0; } },
   ];
 
   var nav = document.createElement('nav');

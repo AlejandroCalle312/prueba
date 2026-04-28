@@ -3,7 +3,7 @@
 Web application for IT Service Management analytics, deployed on Azure Web App.
 
 - FastAPI backend connected to Databricks SQL Warehouse.
-- Static frontend serving Ticket Lifecycle and Resolution Score Engine dashboards.
+- Static frontend serving Ticket Lifecycle, Resolution Score Engine and Ticket Routing Analysis dashboards.
 - Authentication via Azure Entra ID (client credentials).
 - Data sourced from Jira tickets and activity tables in Databricks (`axsa_prod_bronze`).
 

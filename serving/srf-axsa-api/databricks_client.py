@@ -18,6 +18,7 @@ import os
 import re
 import time
 import json
+from collections import Counter
 from html import unescape
 from datetime import datetime, timezone, timedelta, time as dt_time
 from functools import lru_cache
@@ -80,6 +81,8 @@ _NEGLIGIBLE_UNASSIGNED_SECONDS: int = int(os.getenv("LIFECYCLE_NEGLIGIBLE_UNASSI
 _SLA_TARGET_HOURS: dict[int, int] = {1: 6, 2: 12, 3: 24, 4: 60, 5: 120}
 _SLA_WORKDAY_START_HOUR: int = int(os.getenv("SLA_WORKDAY_START_HOUR", "7"))
 _SLA_WORKDAY_END_HOUR: int = int(os.getenv("SLA_WORKDAY_END_HOUR", "19"))
+_SCORE_ENGINE_WORKDAY_START_HOUR: int = int(os.getenv("SCORE_ENGINE_WORKDAY_START_HOUR", "7"))
+_SCORE_ENGINE_WORKDAY_END_HOUR: int = int(os.getenv("SCORE_ENGINE_WORKDAY_END_HOUR", "18"))
 
 # Databricks resource ID used when requesting an AAD token via Managed Identity
 _DATABRICKS_ARM_RESOURCE = "2ff814a6-3304-4ab8-85cb-cd0e6f879c1d"
@@ -664,6 +667,17 @@ class DatabricksClient:
         return max(delta, 0)
 
     @staticmethod
+    def _median_seconds(values: list[int]) -> float:
+        if not values:
+            return 0.0
+        ordered = sorted(values)
+        size = len(ordered)
+        middle = size // 2
+        if size % 2 == 1:
+            return float(ordered[middle])
+        return (ordered[middle - 1] + ordered[middle]) / 2.0
+
+    @staticmethod
     def _normalise_group(value: Any) -> str:
         text = str(value or "").strip()
         return text if text else "Unknown"
@@ -687,7 +701,13 @@ class DatabricksClient:
         return "await" in text and ("customer" in text or "costumer" in text)
 
     @staticmethod
-    def _business_seconds_weekdays(start: datetime, end: datetime, tz_name: str) -> int:
+    def _business_seconds_weekdays(
+        start: datetime,
+        end: datetime,
+        tz_name: str,
+        start_hour: int | None = None,
+        end_hour: int | None = None,
+    ) -> int:
         if end <= start:
             return 0
 
@@ -698,10 +718,15 @@ class DatabricksClient:
         last_day = local_end.date()
         total_seconds = 0
 
+        workday_start = _SLA_WORKDAY_START_HOUR if start_hour is None else int(start_hour)
+        workday_end = _SLA_WORKDAY_END_HOUR if end_hour is None else int(end_hour)
+        if workday_end <= workday_start:
+            return 0
+
         while day_cursor <= last_day:
             if day_cursor.weekday() < 5:
-                window_start = datetime.combine(day_cursor, dt_time(_SLA_WORKDAY_START_HOUR, 0), tzinfo=tz)
-                window_end = datetime.combine(day_cursor, dt_time(_SLA_WORKDAY_END_HOUR, 0), tzinfo=tz)
+                window_start = datetime.combine(day_cursor, dt_time(workday_start, 0), tzinfo=tz)
+                window_end = datetime.combine(day_cursor, dt_time(workday_end, 0), tzinfo=tz)
                 overlap_start = max(local_start, window_start)
                 overlap_end = min(local_end, window_end)
                 if overlap_end > overlap_start:
@@ -1355,23 +1380,19 @@ class DatabricksClient:
     def _fetch_score_engine(self, months: list[str], limit: int) -> dict[str, Any]:
         assignment_group_column = self._get_assignment_group_column()
         timeline_column = self._get_timeline_event_column()
-        status_column = self._get_status_column()
         priority_column = self._get_priority_column()
         issue_type_column = self._get_issue_type_column()
-        local_updated_expr = f"FROM_UTC_TIMESTAMP({timeline_column}, '{_REPORTING_TIMEZONE}')"
-        # Score engine: Closed + Resolved = tickets considered "resolved" in Jira
-        score_status_filter = f"LOWER(TRIM({status_column})) IN ('resolved', 'closed')" if status_column else "1 = 1"
+        local_created_expr = f"FROM_UTC_TIMESTAMP(created_in, '{_REPORTING_TIMEZONE}')"
         score_type_filter = f"LOWER(TRIM({issue_type_column})) LIKE '%incident%'"
-        smc_filter = "AND smc_assignments = 1"
+        smc_filter = "AND smc_assignments > 0"
 
         limit_value = max(1, min(int(limit or 2000), 5000))
 
-        # Month filter on updated_in (Jira "Updated" = resolution/close date).
-        # For Closed tickets updated_in reflects the actual close date spread across months.
+        # Month filter aligned with Jira dashboard X Axis: Created.
         month_filter = ""
         if months:
             month_list = ", ".join([f"'{m}'" for m in months])
-            month_filter = f"AND DATE_FORMAT({local_updated_expr}, 'yyyy-MM') IN ({month_list})"
+            month_filter = f"AND DATE_FORMAT({local_created_expr}, 'yyyy-MM') IN ({month_list})"
 
         sql = f"""
             WITH ticket_pool AS (
@@ -1380,7 +1401,6 @@ class DatabricksClient:
                     COALESCE(NULLIF(TRIM({assignment_group_column}), ''), 'Unknown') AS assignment_group
                 FROM {_TICKETS_TABLE}
                 WHERE created_in IS NOT NULL
-                  AND {timeline_column} IS NOT NULL
                   AND {score_type_filter}
                   {smc_filter}
                   {month_filter}
@@ -1413,11 +1433,8 @@ class DatabricksClient:
                     UNIX_TIMESTAMP({timeline_column}) - UNIX_TIMESTAMP(created_in) AS duration_seconds
                 FROM {_TICKETS_TABLE}
                 WHERE created_in IS NOT NULL
-                  AND {timeline_column} IS NOT NULL
-                  AND {score_status_filter}
                   AND {score_type_filter}
                   {smc_filter}
-                  AND UNIX_TIMESTAMP({timeline_column}) - UNIX_TIMESTAMP(created_in) > 0
                   {month_filter}
             )
             SELECT
@@ -1442,6 +1459,35 @@ class DatabricksClient:
         """
 
         rows = self._execute(sql)
+
+        business_duration_sql = f"""
+            SELECT
+                COALESCE(NULLIF(TRIM({assignment_group_column}), ''), 'Unknown') AS assignment_group,
+                created_in,
+                {timeline_column} AS updated_in
+            FROM {_TICKETS_TABLE}
+            WHERE created_in IS NOT NULL
+              AND {score_type_filter}
+              {smc_filter}
+              {month_filter}
+        """
+        business_rows = self._execute(business_duration_sql)
+        business_seconds_by_group: dict[str, list[int]] = {}
+        for detail in business_rows:
+            created_dt = self._as_datetime(detail.get("created_in"))
+            updated_dt = self._as_datetime(detail.get("updated_in"))
+            if not created_dt or not updated_dt:
+                continue
+            duration_seconds = self._business_seconds_weekdays(
+                created_dt,
+                updated_dt,
+                _REPORTING_TIMEZONE,
+                start_hour=_SCORE_ENGINE_WORKDAY_START_HOUR,
+                end_hour=_SCORE_ENGINE_WORKDAY_END_HOUR,
+            )
+            group_name = self._normalise_group(detail.get("assignment_group"))
+            business_seconds_by_group.setdefault(group_name, []).append(duration_seconds)
+
         grand_total_tickets = sum(int(r.get("tickets_resolved") or 0) for r in rows)
         grand_total_tickets = max(grand_total_tickets, 1)
 
@@ -1449,11 +1495,21 @@ class DatabricksClient:
         for row in rows:
             resolved = int(row.get("tickets_resolved") or 0)
             received = int(row.get("tickets_received") or resolved)
-            avg_secs = float(row.get("avg_resolution_seconds") or 0)
-            median_secs = float(row.get("median_resolution_seconds") or 0)
-            min_secs = float(row.get("min_resolution_seconds") or 0)
-            max_secs = float(row.get("max_resolution_seconds") or 0)
-            total_held = float(row.get("total_time_held_seconds") or 0)
+            group_name = self._normalise_group(row.get("assignment_group"))
+            group_business_seconds = business_seconds_by_group.get(group_name, [])
+
+            if group_business_seconds:
+                avg_secs = float(sum(group_business_seconds) / len(group_business_seconds))
+                median_secs = self._median_seconds(group_business_seconds)
+                min_secs = float(min(group_business_seconds))
+                max_secs = float(max(group_business_seconds))
+                total_held = float(sum(group_business_seconds))
+            else:
+                avg_secs = float(row.get("avg_resolution_seconds") or 0)
+                median_secs = float(row.get("median_resolution_seconds") or 0)
+                min_secs = float(row.get("min_resolution_seconds") or 0)
+                max_secs = float(row.get("max_resolution_seconds") or 0)
+                total_held = float(row.get("total_time_held_seconds") or 0)
 
             resolution_share_pct = round((resolved / grand_total_tickets) * 100, 1)
             resolution_rate_pct = round((resolved / max(received, 1)) * 100, 1)
@@ -1465,7 +1521,7 @@ class DatabricksClient:
             composite_score = round(resolution_share_pct * 0.6 + speed_score * 0.4, 1)
 
             scored_groups.append({
-                "assignmentGroup": str(row.get("assignment_group") or "Unknown"),
+                "assignmentGroup": group_name,
                 "ticketsReceived": received,
                 "ticketsResolved": resolved,
                 "resolutionRatePct": resolution_rate_pct,
@@ -1493,92 +1549,93 @@ class DatabricksClient:
         for idx, group in enumerate(scored_groups):
             group["rank"] = idx + 1
 
-        # Forecast: trend-based prediction using per-month share data
+        # Forecast: regression-based prediction using all historical months available.
+        # This avoids simply mirroring the current selected-month share when a single month is queried.
+        history_sql = f"""
+            SELECT
+                DATE_FORMAT({local_created_expr}, 'yyyy-MM') AS month,
+                COALESCE(NULLIF(TRIM({assignment_group_column}), ''), 'Unknown') AS assignment_group,
+                COUNT(*) AS resolved
+            FROM {_TICKETS_TABLE}
+            WHERE created_in IS NOT NULL
+              AND {score_type_filter}
+              {smc_filter}
+            GROUP BY DATE_FORMAT({local_created_expr}, 'yyyy-MM'),
+                     COALESCE(NULLIF(TRIM({assignment_group_column}), ''), 'Unknown')
+        """
+        history_rows = self._execute(history_sql)
+
+        month_totals_history: dict[str, int] = {}
+        group_month_history: dict[str, dict[str, int]] = {}
+        for tr in history_rows:
+            month_key = str(tr.get("month") or "")
+            group_key = str(tr.get("assignment_group") or "Unknown")
+            resolved_count = int(tr.get("resolved") or 0)
+            month_totals_history[month_key] = month_totals_history.get(month_key, 0) + resolved_count
+            group_month_history.setdefault(group_key, {})[month_key] = resolved_count
+
+        sorted_history_months = sorted(month_totals_history.keys())
+
+        # Anchor forecast to the selected month context so the prediction changes by month.
+        # If months are selected, use the latest selected month as the cutoff and forecast next month.
+        # Otherwise, use the latest month available in history.
+        selected_months = sorted([m for m in (months or []) if m in month_totals_history])
+        forecast_base_month = selected_months[-1] if selected_months else (sorted_history_months[-1] if sorted_history_months else "")
+        history_months_for_regression = [m for m in sorted_history_months if m <= forecast_base_month] if forecast_base_month else sorted_history_months
         forecast = []
-        if months and len(months) >= 2:
-            # Query per-month resolved counts per group
-            trend_sql = f"""
-                SELECT
-                    DATE_FORMAT({local_updated_expr}, 'yyyy-MM') AS month,
-                    COALESCE(NULLIF(TRIM({assignment_group_column}), ''), 'Unknown') AS assignment_group,
-                    COUNT(*) AS resolved
-                FROM {_TICKETS_TABLE}
-                WHERE created_in IS NOT NULL
-                  AND {timeline_column} IS NOT NULL
-                  AND {score_status_filter}
-                  AND {score_type_filter}
-                  {smc_filter}
-                  AND UNIX_TIMESTAMP({timeline_column}) - UNIX_TIMESTAMP(created_in) > 0
-                  {month_filter}
-                GROUP BY DATE_FORMAT({local_updated_expr}, 'yyyy-MM'),
-                         COALESCE(NULLIF(TRIM({assignment_group_column}), ''), 'Unknown')
-            """
-            trend_rows = self._execute(trend_sql)
+        for group in scored_groups:
+            group_name = group["assignmentGroup"]
+            group_history = group_month_history.get(group_name, {})
+            shares_history = [
+                round(group_history.get(m, 0) / max(month_totals_history.get(m, 1), 1) * 100, 1)
+                for m in history_months_for_regression
+            ]
 
-            # Build per-month totals and per-group-month resolved
-            month_totals: dict[str, int] = {}
-            group_month: dict[str, dict[str, int]] = {}
-            for tr in trend_rows:
-                m = str(tr.get("month") or "")
-                grp = str(tr.get("assignment_group") or "Unknown")
-                res = int(tr.get("resolved") or 0)
-                month_totals[m] = month_totals.get(m, 0) + res
-                group_month.setdefault(grp, {})[m] = res
+            sample_size = len(shares_history)
+            slope = 0.0
+            if sample_size >= 2:
+                x_values = list(range(sample_size))
+                x_mean = sum(x_values) / sample_size
+                y_mean = sum(shares_history) / sample_size
+                numerator = sum((x_values[i] - x_mean) * (shares_history[i] - y_mean) for i in range(sample_size))
+                denominator = sum((x_values[i] - x_mean) ** 2 for i in range(sample_size))
+                slope = numerator / denominator if denominator != 0 else 0.0
+                intercept = y_mean - slope * x_mean
+                predicted_share = intercept + slope * sample_size
+            elif sample_size == 1:
+                predicted_share = shares_history[0]
+            else:
+                predicted_share = float(group["resolutionSharePct"])
 
-            sorted_months = sorted(month_totals.keys())
+            predicted_share = round(min(max(predicted_share, 0.0), 100.0), 1)
 
-            for group in scored_groups:
-                grp_name = group["assignmentGroup"]
-                gm = group_month.get(grp_name, {})
-                shares = []
-                for m in sorted_months:
-                    total_m = month_totals.get(m, 1)
-                    shares.append(round(gm.get(m, 0) / max(total_m, 1) * 100, 1))
+            trend_dir = "stable"
+            if sample_size >= 2:
+                if slope > 0.5:
+                    trend_dir = "up"
+                elif slope < -0.5:
+                    trend_dir = "down"
 
-                # Linear trend: y = a + b*x, predict x = len(shares)
-                n = len(shares)
-                if n >= 2:
-                    x_vals = list(range(n))
-                    x_mean = sum(x_vals) / n
-                    y_mean = sum(shares) / n
-                    num = sum((x_vals[i] - x_mean) * (shares[i] - y_mean) for i in range(n))
-                    den = sum((x_vals[i] - x_mean) ** 2 for i in range(n))
-                    slope = num / den if den != 0 else 0
-                    intercept = y_mean - slope * x_mean
-                    predicted = round(max(intercept + slope * n, 0), 1)
-                else:
-                    predicted = shares[0] if shares else group["resolutionSharePct"]
+            if sample_size >= 6:
+                confidence = "high"
+            elif sample_size >= 3:
+                confidence = "medium"
+            else:
+                confidence = "low"
 
-                trend_dir = "stable"
-                if n >= 2:
-                    if slope > 0.5:
-                        trend_dir = "up"
-                    elif slope < -0.5:
-                        trend_dir = "down"
-
-                current_share = group["resolutionSharePct"]
-                if predicted > current_share + 0.5:
-                    confidence = "high"
-                elif predicted < current_share - 0.5:
-                    confidence = "low"
-                else:
-                    confidence = "medium"
-                forecast.append({
-                    "assignmentGroup": grp_name,
-                    "forecastSharePct": predicted,
-                    "trend": trend_dir,
-                    "confidence": confidence,
-                    "monthlyShares": {m: shares[i] for i, m in enumerate(sorted_months)},
-                })
-        else:
-            # Single month or no months: fallback to current share
-            for group in scored_groups:
-                forecast.append({
-                    "assignmentGroup": group["assignmentGroup"],
-                    "forecastSharePct": group["resolutionSharePct"],
-                    "trend": "stable",
-                    "confidence": "high" if group["ticketsResolved"] >= 20 else "medium" if group["ticketsResolved"] >= 5 else "low",
-                })
+            recent_months = history_months_for_regression[-12:]
+            forecast.append({
+                "assignmentGroup": group_name,
+                "forecastSharePct": predicted_share,
+                "trend": trend_dir,
+                "confidence": confidence,
+                "historyMonthsConsidered": sample_size,
+                "forecastBaseMonth": forecast_base_month,
+                "monthlyShares": {
+                    m: round(group_history.get(m, 0) / max(month_totals_history.get(m, 1), 1) * 100, 1)
+                    for m in recent_months
+                },
+            })
 
         return {
             "groups": scored_groups,
@@ -2150,6 +2207,424 @@ class DatabricksClient:
         raise RuntimeError(
             "Could not query assignment groups with known column names."
         ) from last_exc
+
+    # ── Ticket Routing Analysis ──────────────────────────────────────────────
+
+    _FRONT_LINE_GROUPS: list[str] = [
+        "axpo service management center",
+        "axpo onsite support ch - baden",
+        "axpo onsite support ch - beznau",
+        "axpo onsite support es",
+    ]
+
+    def get_ticket_routing_analysis(
+        self, months: list[str] | None = None, limit: int = 2000
+    ) -> dict:
+        """Analyse tickets resolved by front-line groups and map to natural owners via it_service."""
+        cache_key = f"routing:{'|'.join(sorted(months)) if months else 'all'}:{limit}"
+        return self._cached(cache_key, lambda: self._fetch_ticket_routing(months, limit))
+
+    def _fetch_ticket_routing(self, months: list[str] | None, limit: int) -> dict:
+        assignment_group_column = self._get_assignment_group_column()
+        issue_type_column = self._get_issue_type_column()
+        local_created_expr = f"FROM_UTC_TIMESTAMP(created_in, '{_REPORTING_TIMEZONE}')"
+        score_type_filter = f"LOWER(TRIM({issue_type_column})) LIKE '%incident%'"
+
+        front_filter = ", ".join(f"'{g}'" for g in self._FRONT_LINE_GROUPS)
+        front_line_where = f"LOWER(TRIM({assignment_group_column})) IN ({front_filter})"
+
+        month_filter = ""
+        if months:
+            month_list = ", ".join(f"'{m}'" for m in months)
+            month_filter = f"AND DATE_FORMAT({local_created_expr}, 'yyyy-MM') IN ({month_list})"
+
+        # ── 1) Tickets resolved by front-line, with per-ticket detail ─────────
+        front_line_sql = f"""
+            SELECT
+                CAST({_TICKET_ID_COLUMN} AS STRING) AS ticket_id,
+                COALESCE(NULLIF(TRIM({assignment_group_column}), ''), 'Unknown') AS resolver,
+                COALESCE(NULLIF(TRIM(it_service), ''), '(Unclassified)') AS it_service,
+                SUBSTR(COALESCE(NULLIF(TRIM(translated_description), ''),
+                                NULLIF(TRIM(description), ''), ''), 1, 500) AS ticket_desc
+            FROM {_TICKETS_TABLE}
+            WHERE created_in IS NOT NULL
+              AND {score_type_filter}
+              AND smc_assignments > 0
+              AND {front_line_where}
+              {month_filter}
+        """
+        front_rows = self._execute(front_line_sql)
+        if not front_rows:
+            return {
+                "summary": {"totalFrontLineResolved": 0, "classifiedTickets": 0,
+                            "unclassifiedTickets": 0, "reroutableTickets": 0,
+                            "reroutePct": 0, "monthsAnalyzed": months or "all"},
+                "resolvers": [], "resolverRouting": [], "ownerRanking": [],
+                "routingDetails": [],
+            }
+
+        ticket_ids = [str(r["ticket_id"]) for r in front_rows]
+
+        # Build exact IN-list of front-line groups found in data
+        _front_groups_found: set[str] = set()
+        for r in front_rows:
+            _front_groups_found.add(str(r["resolver"]).lower().strip())
+        front_filter = ", ".join(f"'{g}'" for g in _front_groups_found)
+
+        # ── 1.5) Whitelist: only real assignment groups from the tickets table ─
+        _valid_groups: set[str] = set()
+        try:
+            grp_rows = self._execute(f"""
+                SELECT DISTINCT LOWER(TRIM({assignment_group_column})) AS g
+                FROM {_TICKETS_TABLE}
+                WHERE {assignment_group_column} IS NOT NULL
+                  AND TRIM({assignment_group_column}) != ''
+            """)
+            _valid_groups = {str(r["g"]).strip() for r in grp_rows if r.get("g")}
+            logger.info("Loaded %d valid assignment groups", len(_valid_groups))
+        except Exception:
+            logger.warning("Could not load assignment groups whitelist")
+
+        def _is_group(name: str) -> bool:
+            """Return True only if name is a known assignment group."""
+            if not name or name in ("Unknown", "(Unclassified)"):
+                return False
+            return name.lower().strip() in _valid_groups
+
+        # ── 2) Escalation history: for each ticket, find the LAST specialist
+        #        group it was assigned to (via activity table) ──────────────────
+        # Process in batches to avoid SQL size limits
+        escalation_map: dict[str, str] = {}  # ticket_id → last specialist group
+        batch_size = 500
+        for i in range(0, len(ticket_ids), batch_size):
+            batch = ticket_ids[i:i + batch_size]
+            id_list = ", ".join(f"'{tid}'" for tid in batch)
+            esc_sql = f"""
+                WITH assignments AS (
+                    SELECT
+                        CAST(a.ticket_id AS STRING) AS ticket_id,
+                        TRIM(ELEMENT_AT(SPLIT(a.content, ' --> '), 2)) AS to_group,
+                        a.date AS change_date
+                    FROM {_ACTIVITY_TABLE} a
+                    WHERE CAST(a.ticket_id AS STRING) IN ({id_list})
+                      AND a.updated = 'Assignment group'
+                      AND a.content LIKE '%-->%'
+                ),
+                specialist_assignments AS (
+                    SELECT ticket_id, to_group, change_date,
+                           ROW_NUMBER() OVER (PARTITION BY ticket_id ORDER BY change_date DESC) AS rn
+                    FROM assignments
+                    WHERE LOWER(TRIM(to_group)) NOT IN ({front_filter})
+                      AND TRIM(to_group) != ''
+                )
+                SELECT ticket_id, to_group
+                FROM specialist_assignments
+                WHERE rn = 1
+            """
+            esc_rows = self._execute(esc_sql)
+            for row in esc_rows:
+                grp = str(row["to_group"]).strip()
+                if _is_group(grp):
+                    escalation_map[str(row["ticket_id"])] = grp
+
+        logger.info(
+            "Routing: %d front-line tickets, %d with real escalation history",
+            len(front_rows), len(escalation_map),
+        )
+
+        # ── 2.5) Description keyword model ───────────────────────────────────
+        # Build word-frequency profiles per specialist group from ALL historical
+        # escalation data (not limited to the selected months).
+        _DESC_STOP = {
+            "the","and","for","with","that","this","from","has","was","are",
+            "not","but","can","will","been","have","had","does","did","get",
+            "got","just","its","our","one","all","also","than","other","any",
+            "into","more","some","out","over","such","after","before","about",
+            "please","hello","could","would","should","thanks","thank","thanks",
+            "need","want","help","like","new","use","using","used","may",
+            "user","ticket","issue","error","work","working","request",
+            "dear","team","support","service","good","morning","afternoon",
+            "der","die","das","und","ist","ein","eine","auf","mit","dem",
+            "den","des","von","für","nicht","sich","auch","als","noch",
+            "wie","bei","nach","wird","aus","oder","hat","kann","sind",
+            "nur","wenn","schon","wir","uns","ich","bitte","hallo","guten",
+            "werden","wurde","haben","diese","dieser","dieses","einem",
+            "einer","mein","meine","sein","ihr","ihre","morgen","tag",
+        }
+
+        def _tokenize(text: str) -> set[str]:
+            return set(re.findall(r'\b[a-zäöüàéèáíóúñ]{3,}\b', text.lower())) - _DESC_STOP
+
+        desc_model_sql = f"""
+            SELECT
+                SUBSTR(COALESCE(NULLIF(TRIM(translated_description), ''),
+                                NULLIF(TRIM(description), ''), ''), 1, 500) AS desc_text,
+                TRIM({assignment_group_column}) AS resolver_group
+            FROM {_TICKETS_TABLE}
+            WHERE created_in IS NOT NULL
+              AND {score_type_filter}
+              AND smc_assignments > 0
+              AND LOWER(TRIM({assignment_group_column})) NOT IN ({front_filter})
+              AND TRIM({assignment_group_column}) != ''
+              AND LENGTH(COALESCE(translated_description, description, '')) > 10
+            LIMIT 8000
+        """
+        group_words: dict[str, Counter] = {}
+        group_docs: dict[str, int] = {}
+        try:
+            model_rows = self._execute(desc_model_sql)
+            for mr in model_rows:
+                grp = str(mr.get("resolver_group", "")).strip()
+                txt = str(mr.get("desc_text", ""))
+                if not grp or not _is_group(grp) or len(txt) < 10:
+                    continue
+                tokens = _tokenize(txt)
+                if not tokens:
+                    continue
+                group_words.setdefault(grp, Counter()).update(tokens)
+                group_docs[grp] = group_docs.get(grp, 0) + 1
+        except Exception:
+            logger.warning("Description model query failed; skipping description routing")
+
+        # Word spread for IDF weighting (more distinctive words get higher weight)
+        w_spread: dict[str, int] = {}
+        for cnt in group_words.values():
+            for w in cnt:
+                w_spread[w] = w_spread.get(w, 0) + 1
+        n_grps = max(len(group_words), 1)
+
+        logger.info(
+            "Description model: %d groups, %d training tickets",
+            len(group_words), sum(group_docs.values()),
+        )
+
+        def _match_desc(text: str) -> tuple[str, float] | None:
+            """Score a description against group keyword profiles (TF-IDF).
+            Returns (group, confidence) or None."""
+            if len(text) < 10 or not group_words:
+                return None
+            tokens = _tokenize(text)
+            if not tokens:
+                return None
+            scores: dict[str, float] = {}
+            for grp, cnt in group_words.items():
+                ndocs = max(group_docs.get(grp, 1), 1)
+                s = 0.0
+                for w in tokens:
+                    if w in cnt:
+                        tf = cnt[w] / ndocs
+                        idf = n_grps / max(w_spread.get(w, 1), 1)
+                        s += tf * idf
+                if s > 0:
+                    scores[grp] = s
+            if not scores:
+                return None
+            ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+            # Only return if there's a clear winner (>30% better than 2nd)
+            if len(ranked) >= 2 and ranked[0][1] <= ranked[1][1] * 1.3:
+                return None
+            # Confidence based on margin over 2nd place
+            if len(ranked) >= 2:
+                margin = ranked[0][1] / ranked[1][1]
+                conf = min(0.85, 0.50 + (margin - 1.0) * 0.35)
+            else:
+                conf = 0.75
+            return (ranked[0][0], round(conf, 2))
+
+        # ── 3) Fallback: it_service → natural owner (same as before) ─────────
+        svc_totals_raw: dict[str, int] = {}
+        for r in front_rows:
+            svc = str(r.get("it_service", "(Unclassified)"))
+            svc_totals_raw[svc] = svc_totals_raw.get(svc, 0) + 1
+
+        natural_owners: dict[str, list[dict]] = {}
+        for svc in sorted(svc_totals_raw.keys(), key=lambda s: svc_totals_raw[s], reverse=True):
+            if svc == "(Unclassified)":
+                continue
+            svc_escaped = svc.replace("'", "''")
+            owner_sql = f"""
+                SELECT
+                    COALESCE(NULLIF(TRIM({assignment_group_column}), ''), 'Unknown') AS grp,
+                    COUNT(*) AS cnt
+                FROM {_TICKETS_TABLE}
+                WHERE created_in IS NOT NULL
+                  AND {score_type_filter}
+                  AND smc_assignments > 0
+                  AND TRIM(it_service) = '{svc_escaped}'
+                  AND LOWER(TRIM({assignment_group_column})) NOT IN ({front_filter})
+                GROUP BY grp
+                ORDER BY cnt DESC
+                LIMIT 5
+            """
+            owner_rows = self._execute(owner_sql)
+            if owner_rows:
+                filtered = [o for o in owner_rows if _is_group(str(o["grp"]).strip())]
+                total_specialist = sum(int(o.get("cnt", 0)) for o in filtered)
+                # Only keep this it_service mapping if top group has enough evidence
+                if total_specialist >= 3:
+                    natural_owners[svc] = [
+                    {
+                        "group": str(o["grp"]),
+                        "tickets": int(o["cnt"]),
+                        "pct": round(int(o["cnt"]) / max(total_specialist, 1) * 100, 1),
+                    }
+                    for o in filtered
+                ]
+
+        # ── 4) Assign each ticket to a specialist group ──────────────────────
+        # Priority: real escalation > description keywords > it_service fallback
+        resolver_totals: dict[str, int] = {}
+        resolver_owner: dict[str, dict[str, int]] = {}  # resolver → {owner → count}
+        # Track routing method per (resolver, owner) pair
+        resolver_owner_method: dict[str, dict[str, dict[str, int]]] = {}
+        # Track confidence per (resolver, owner) pair
+        resolver_owner_conf: dict[str, dict[str, list[float]]] = {}
+        resolver_unclassified: dict[str, int] = {}
+        resolver_self: dict[str, int] = {}
+        routing_method_counts = {
+            "escalation": 0, "description": 0, "it_service": 0,
+            "unclassified": 0, "self_resolved": 0,
+        }
+
+        def _add_owner(resolver: str, owner: str, method: str, confidence: float = 0.5) -> None:
+            resolver_owner.setdefault(resolver, {})[owner] = (
+                resolver_owner.get(resolver, {}).get(owner, 0) + 1
+            )
+            resolver_owner_method.setdefault(resolver, {}).setdefault(owner, {
+                "escalation": 0, "description": 0, "it_service": 0,
+            })
+            resolver_owner_method[resolver][owner][method] += 1
+            resolver_owner_conf.setdefault(resolver, {}).setdefault(owner, []).append(confidence)
+
+        for r in front_rows:
+            tid = str(r["ticket_id"])
+            resolver = str(r["resolver"])
+            svc = str(r.get("it_service", "(Unclassified)"))
+            desc = str(r.get("ticket_desc", ""))
+            resolver_totals[resolver] = resolver_totals.get(resolver, 0) + 1
+
+            if tid in escalation_map:
+                # Real escalation data — most reliable (95%)
+                _add_owner(resolver, escalation_map[tid], "escalation", 0.95)
+                routing_method_counts["escalation"] += 1
+            else:
+                # Get BOTH predictions to cross-validate
+                desc_result = _match_desc(desc)  # (group, conf) or None
+                svc_group = None
+                svc_conf = 0.0
+                if svc != "(Unclassified)":
+                    owners = natural_owners.get(svc, [])
+                    if owners:
+                        svc_group = owners[0]["group"]
+                        svc_conf = min(0.80, max(0.35, owners[0]["pct"] / 100.0))
+
+                if desc_result and svc_group:
+                    if desc_result[0] == svc_group:
+                        # Both methods agree → high confidence
+                        combined_conf = min(0.92, max(desc_result[1], svc_conf) + 0.10)
+                        _add_owner(resolver, desc_result[0], "description", combined_conf)
+                        routing_method_counts["description"] += 1
+                    else:
+                        # Disagree → pick the one with higher confidence
+                        if desc_result[1] >= svc_conf:
+                            _add_owner(resolver, desc_result[0], "description", desc_result[1])
+                            routing_method_counts["description"] += 1
+                        else:
+                            _add_owner(resolver, svc_group, "it_service", svc_conf)
+                            routing_method_counts["it_service"] += 1
+                elif desc_result:
+                    _add_owner(resolver, desc_result[0], "description", desc_result[1])
+                    routing_method_counts["description"] += 1
+                elif svc_group:
+                    _add_owner(resolver, svc_group, "it_service", svc_conf)
+                    routing_method_counts["it_service"] += 1
+                elif svc != "(Unclassified)":
+                    resolver_self[resolver] = resolver_self.get(resolver, 0) + 1
+                    routing_method_counts["self_resolved"] += 1
+                else:
+                    resolver_unclassified[resolver] = resolver_unclassified.get(resolver, 0) + 1
+                    routing_method_counts["unclassified"] += 1
+
+        grand_total = sum(resolver_totals.values())
+
+        # ── 5) Build resolver routing cards ──────────────────────────────────
+        resolver_routing: list[dict] = []
+        all_owner_agg: dict[str, int] = {}  # global aggregation for owner ranking
+
+        for resolver in sorted(resolver_totals, key=lambda r: resolver_totals[r], reverse=True):
+            total_res = resolver_totals[resolver]
+            owner_map = resolver_owner.get(resolver, {})
+            method_map = resolver_owner_method.get(resolver, {})
+            conf_map = resolver_owner_conf.get(resolver, {})
+            unclassified = resolver_unclassified.get(resolver, 0)
+            self_resolved = resolver_self.get(resolver, 0)
+
+            owner_detail = sorted(
+                [{"group": g, "tickets": t, "pct": round(t / max(total_res, 1) * 100, 1),
+                  "methods": method_map.get(g, {"escalation": 0, "description": 0, "it_service": 0}),
+                  "confidence": round(sum(conf_map.get(g, [0.5])) / max(len(conf_map.get(g, [0.5])), 1) * 100)}
+                 for g, t in owner_map.items()],
+                key=lambda x: x["tickets"],
+                reverse=True,
+            )
+            resolver_routing.append({
+                "resolver": resolver,
+                "totalTickets": total_res,
+                "suggestedOwners": owner_detail,
+                "selfResolved": self_resolved,
+                "unclassified": unclassified,
+            })
+
+            for g, t in owner_map.items():
+                all_owner_agg[g] = all_owner_agg.get(g, 0) + t
+
+        # ── 6) Owner ranking ─────────────────────────────────────────────────
+        owner_ranking = sorted(
+            [{"group": k, "tickets": v} for k, v in all_owner_agg.items()],
+            key=lambda x: x["tickets"],
+            reverse=True,
+        )
+
+        # ── 7) Summary ───────────────────────────────────────────────────────
+        total_unclassified = sum(resolver_unclassified.values())
+        total_self = sum(resolver_self.values())
+        total_routed = sum(all_owner_agg.values())
+
+        # ── 8) Resolver list ─────────────────────────────────────────────────
+        resolver_list = [
+            {"group": k, "tickets": v}
+            for k, v in sorted(resolver_totals.items(), key=lambda x: x[1], reverse=True)
+        ]
+
+        # ── 9) Routing details by it_service (kept for reference) ────────────
+        routing_details: list[dict] = []
+        for svc in sorted(svc_totals_raw.keys(), key=lambda s: svc_totals_raw[s], reverse=True):
+            svc_cnt = svc_totals_raw[svc]
+            owners = natural_owners.get(svc, [])
+            suggested = owners[0]["group"] if owners else "(self-resolved)"
+            routing_details.append({
+                "itService": svc,
+                "ticketCount": svc_cnt,
+                "sharePct": round(svc_cnt / max(grand_total, 1) * 100, 1),
+                "suggestedOwner": suggested,
+                "topOwners": owners,
+            })
+
+        return {
+            "summary": {
+                "totalFrontLineResolved": grand_total,
+                "classifiedTickets": grand_total - total_unclassified,
+                "unclassifiedTickets": total_unclassified,
+                "reroutableTickets": total_routed,
+                "reroutePct": round(total_routed / max(grand_total, 1) * 100, 1),
+                "monthsAnalyzed": months if months else "all",
+                "routingMethod": routing_method_counts,
+            },
+            "resolvers": resolver_list,
+            "resolverRouting": resolver_routing,
+            "ownerRanking": owner_ranking,
+            "routingDetails": routing_details[:limit],
+        }
 
     def invalidate_cache(self) -> None:
         """Clear all cached entries (e.g. triggered by a manual refresh)."""

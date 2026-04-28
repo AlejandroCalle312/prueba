@@ -482,6 +482,31 @@ async def ticket_lifecycle_score_engine(
     return JSONResponse(content=data)
 
 
+@app.get("/api/ticket-lifecycle/routing-analysis", tags=["ticket-lifecycle"])
+async def ticket_routing_analysis(
+    months: Annotated[
+        str | None,
+        Query(
+            description="Comma-separated YYYY-MM values for month filter.",
+            example="2026-03,2026-02",
+        ),
+    ] = None,
+    limit: Annotated[
+        int,
+        Query(ge=1, le=5000, description="Maximum routing details to return."),
+    ] = 200,
+) -> JSONResponse:
+    """Analyse tickets resolved by front-line groups and suggest natural owners."""
+    parsed_months = _parse_months(months)
+    client: DatabricksClient = get_client()
+    try:
+        data = client.get_ticket_routing_analysis(parsed_months, limit)
+    except Exception as exc:
+        logger.error("routing-analysis query failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail="Upstream data source error.") from exc
+    return JSONResponse(content=data)
+
+
 @app.post("/api/cache/invalidate", tags=["ops"])
 async def invalidate_cache(
     x_cache_token: Annotated[
@@ -521,8 +546,13 @@ async def no_cache_html(request, call_next):
 
 
 # Serve the presentation assets from the same domain in production.
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_PRESENTATION_ROOT = _REPO_ROOT / "presentation"
-if _PRESENTATION_ROOT.exists():
-    app.mount("/", StaticFiles(directory=str(_PRESENTATION_ROOT), html=True), name="presentation")
+_APP_DIR = Path(__file__).resolve().parent
+_PRESENTATION_CANDIDATES = [
+    _APP_DIR.parents[1] / "presentation",  # repo layout: <repo>/serving/srf-axsa-api/app.py
+    _APP_DIR / "presentation",             # deployed layout: /home/site/wwwroot/presentation
+]
+for _presentation_root in _PRESENTATION_CANDIDATES:
+    if _presentation_root.exists():
+        app.mount("/", StaticFiles(directory=str(_presentation_root), html=True), name="presentation")
+        break
 

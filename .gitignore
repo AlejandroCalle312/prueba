@@ -1,0 +1,50 @@
+# Node
+node_modules/
+**/node_modules/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Build output
+frontend/dist/
+backend/dist/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Debug / temp scripts
+serving/srf-axsa-api/_*.py
+serving/srf-axsa-api/debug_*.py
+serving/srf-axsa-api/explore_*.py
+serving/srf-axsa-api/verify_*.py
+
+# Build artifacts
+.artifacts/
+.deploy_pkg/
+.deployment
+__pycache__/
+**/__pycache__/
+
+# Images (local only)
+*.png
+*.svg
+
+# Webapp logs (local debug)
+webapp_logs*/
+webapp_logs*.zip
+
+# Serve helper
+presentation/serve.py
+
+# Frontend/backend (not part of deployment)
+backend/
+frontend/

@@ -7,15 +7,16 @@
 
   var host = window.location.hostname || 'localhost';
   var isLocal = host === 'localhost' || host === '127.0.0.1';
-  var base3000 = isLocal ? 'http://' + host + ':3000' : window.location.origin;
+  var base3000 = isLocal ? 'http://' + host + ':' + window.location.port : window.location.origin;
   var path = window.location.pathname;
 
   var links = [
     { href: base3000 + '/home/index.html', label: 'Menu', match: function () { return path === '/' || path.indexOf('/home/') >= 0; } },
-    { href: base3000 + '/tickets-by-hour.html', label: 'Tickets by Hour', match: function () { return path.indexOf('tickets-by-hour.html') >= 0; } },
-    { href: base3000 + '/tickets-per-agent/index.html', label: 'Tickets per Agent', match: function () { return path.indexOf('/tickets-per-agent/') >= 0; } },
+    { href: base3000 + '/tickets-by-hour/tickets-by-hour.html?v=2', label: 'Tickets by Hour', match: function () { return path.indexOf('tickets-by-hour.html') >= 0; } },
+    { href: base3000 + '/tickets-per-agent/index.html?v=2', label: 'Tickets per Agent', match: function () { return path.indexOf('/tickets-per-agent/') >= 0; } },
     { href: base3000 + '/ticket-lifecycle/index.html', label: 'Ticket Lifecycle', match: function () { return path.indexOf('/ticket-lifecycle/') >= 0; } },
     { href: base3000 + '/score-engine/index.html', label: 'Resolution Score Engine', match: function () { return path.indexOf('/score-engine/') >= 0; } },
+    { href: base3000 + '/ticket-routing/index.html', label: 'Ticket Routing', match: function () { return path.indexOf('/ticket-routing/') >= 0; } },
   ];
 
   var nav = document.createElement('nav');

@@ -37,6 +37,8 @@ const scoreState = {
   lastData: null,
 };
 
+const TOP_GROUP_MIN_RESOLVED = 10;
+
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 async function fetchJson(url) {
@@ -192,16 +194,18 @@ function renderScoreEngine(data, isFilterOnly) {
 
   if (dom.scoreBody) {
     dom.scoreBody.innerHTML = '';
-    const top10 = data.groups.slice(0, 10);
-    const rest = data.groups.slice(10);
+    const topGroups = data.groups.filter((g) => (g.ticketsResolved || 0) > TOP_GROUP_MIN_RESOLVED);
+    const rest = data.groups.filter((g) => (g.ticketsResolved || 0) <= TOP_GROUP_MIN_RESOLVED);
     const grandTotal = (scoreState.lastData || data).summary?.totalTicketsAnalyzed || (scoreState.lastData || data).groups.reduce((s, g) => s + g.ticketsResolved, 0) || 1;
 
-    top10.forEach((group) => {
+    topGroups.forEach((group) => {
       const forecast = forecastMap[group.assignmentGroup] || {};
       const sharePct = Math.round(group.ticketsResolved / grandTotal * 1000) / 10;
-      const confidenceClass = confidenceBadgeClass(forecast.confidence);
-      const trendIcon = forecast.trend === 'up' ? '&#9650;' : forecast.trend === 'down' ? '&#9660;' : '&#9654;';
-      const trendClass = forecast.trend === 'up' ? 'trend-up' : forecast.trend === 'down' ? 'trend-down' : 'trend-stable';
+      const forecastSharePct = Math.round((Number(forecast.forecastSharePct) || 0) * 10) / 10;
+      const confidence = forecastSharePct > sharePct ? 'high' : forecastSharePct < sharePct ? 'low' : 'medium';
+      const confidenceClass = confidenceBadgeClass(confidence);
+      const trendIcon = forecastSharePct > sharePct ? '&#9650;' : forecastSharePct < sharePct ? '&#9660;' : '&#9654;';
+      const trendClass = forecastSharePct > sharePct ? 'trend-up' : forecastSharePct < sharePct ? 'trend-down' : 'trend-stable';
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><span class="rank-badge rank-${group.rank <= 3 ? group.rank : 'default'}">${group.rank}</span></td>
@@ -219,9 +223,9 @@ function renderScoreEngine(data, isFilterOnly) {
           </div>
         </td>
         <td>
-          <span class="confidence-badge ${confidenceClass}">${forecast.forecastSharePct || 0}%</span>
+          <span class="confidence-badge ${confidenceClass}">${forecastSharePct}%</span>
           <span class="${trendClass}">${trendIcon}</span>
-          <small class="confidence-label">${forecast.confidence || 'low'}</small>
+          <small class="confidence-label">${confidence}</small>
         </td>
       `;
       dom.scoreBody.appendChild(tr);
@@ -239,7 +243,7 @@ function renderScoreEngine(data, isFilterOnly) {
       tr.className = 'others-row';
       tr.innerHTML = `
         <td><span class="rank-badge rank-default">…</span></td>
-        <td><strong>Others (${rest.length} groups)</strong></td>
+        <td><strong>Others (<= ${TOP_GROUP_MIN_RESOLVED} resolved, ${rest.length} groups)</strong></td>
         <td>${othersReceived}</td>
         <td>${othersResolved}</td>
         <td>${othersRate}%</td>

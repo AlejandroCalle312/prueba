@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Tickets per Agent - Onsite Baden</title>
-  <link rel="stylesheet" href="shared/nav.css" />
+  <style id="nav-inline-css">:root{--global-nav-height:52px}.global-nav{position:fixed;top:0;left:0;right:0;height:var(--global-nav-height);background:linear-gradient(90deg,#0a4e85 0%,#0b6fbf 55%,#1189d6 100%);color:#fff;z-index:1200;border-bottom:1px solid rgba(255,255,255,.2);box-shadow:0 3px 14px rgba(8,43,72,.25)}.global-nav__inner{height:100%;max-width:1280px;margin:0 auto;padding:0 14px;display:flex;align-items:center;gap:14px}.global-nav__brand{font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap}.global-nav__links{display:flex;align-items:center;gap:8px;overflow-x:auto;scrollbar-width:thin}.global-nav__links a{color:#fff;text-decoration:none;font-size:13px;font-weight:600;padding:7px 10px;border-radius:999px;border:1px solid transparent;white-space:nowrap;transition:background-color 140ms ease,border-color 140ms ease}.global-nav__links a:hover{background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.35)}.global-nav__links a.is-active{background:#fff;color:#0a4e85}body{padding-top:var(--global-nav-height)}.app-header{top:var(--global-nav-height)}.sidebar{top:calc(var(--global-nav-height)+65px);height:calc(100vh - (var(--global-nav-height)+65px))}@media(max-width:900px){.global-nav__brand{display:none}}</style>
   <link rel="stylesheet" href="styles.css" />
   <script>
     window.APP_CONFIG = { apiBase: '%%API_BASE_URL%%' };
@@ -104,6 +104,8 @@
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <script src="js/dashboard.js"></script>
-  <script src="shared/nav.js"></script>
+  <script>
+  (function(){'use strict';if(document.getElementById('global-nav'))return;var host=window.location.hostname||'localhost';var isLocal=host==='localhost'||host==='127.0.0.1';var base3000=isLocal?'http://'+host+':'+window.location.port:window.location.origin;var path=window.location.pathname;var links=[{href:base3000+'/home/index.html',label:'Menu',match:function(){return path==='/'||path.indexOf('/home/')>=0}},{href:base3000+'/tickets-by-hour/tickets-by-hour.html?v=2',label:'Tickets by Hour',match:function(){return path.indexOf('tickets-by-hour.html')>=0}},{href:base3000+'/tickets-per-agent/index.html?v=2',label:'Tickets per Agent',match:function(){return path.indexOf('/tickets-per-agent/')>=0}},{href:base3000+'/ticket-lifecycle/index.html',label:'Ticket Lifecycle',match:function(){return path.indexOf('/ticket-lifecycle/')>=0}},{href:base3000+'/score-engine/index.html',label:'Resolution Score Engine',match:function(){return path.indexOf('/score-engine/')>=0}},{href:base3000+'/ticket-routing/index.html',label:'Ticket Routing',match:function(){return path.indexOf('/ticket-routing/')>=0}}];var nav=document.createElement('nav');nav.id='global-nav';nav.className='global-nav';nav.setAttribute('aria-label','Global navigation');var inner=document.createElement('div');inner.className='global-nav__inner';var brand=document.createElement('div');brand.className='global-nav__brand';brand.textContent='SRF-AXSA';inner.appendChild(brand);var linkWrap=document.createElement('div');linkWrap.className='global-nav__links';links.forEach(function(item){var a=document.createElement('a');a.href=item.href;a.textContent=item.label;if(typeof item.match==='function'&&item.match()){a.classList.add('is-active');a.setAttribute('aria-current','page')}linkWrap.appendChild(a)});inner.appendChild(linkWrap);nav.appendChild(inner);document.body.insertBefore(nav,document.body.firstChild)})()
+  </script>
 </body>
 </html>

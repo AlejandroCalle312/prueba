@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SRF-AXSA - Home</title>
-  <link rel="stylesheet" href="../shared/nav.css" />
+  <link rel="stylesheet" href="/shared/nav.css?v=2" />
   <style>
     :root {
       --bg: #f4f7fb;
@@ -92,11 +92,11 @@
         <h2>Tickets by Hour</h2>
         <p class="meta">Hourly dashboard with month and assignment group filters.</p>
         <div class="links">
-          <a class="link" href="/tickets-by-hour.html" target="_blank" rel="noopener noreferrer">
+          <a class="link" href="/tickets-by-hour/tickets-by-hour.html?v=2" target="_blank" rel="noopener noreferrer">
             Open Tickets by Hour
             <span class="pill">open</span>
           </a>
-          <a class="link" href="/tickets-by-hour.html?months=2026-02&assignmentGroup=AXPO+Service+Management+Center" target="_blank" rel="noopener noreferrer">
+          <a class="link" href="/tickets-by-hour/tickets-by-hour.html?v=2&months=2026-02&assignmentGroup=AXPO+Service+Management+Center" target="_blank" rel="noopener noreferrer">
             View with current filters
             <span class="pill">open</span>
           </a>
@@ -107,11 +107,11 @@
         <h2>Tickets per Agent</h2>
         <p class="meta">Monthly dashboard by agent for Onsite Baden.</p>
         <div class="links">
-          <a class="link" href="/tickets-per-agent/index.html" target="_blank" rel="noopener noreferrer">
+          <a class="link" href="/tickets-per-agent/index.html?v=2" target="_blank" rel="noopener noreferrer">
             Open on localhost:3000
             <span class="pill">open</span>
           </a>
-          <a class="link" href="/tickets-per-agent/index.html?month=2026-03" target="_blank" rel="noopener noreferrer">
+          <a class="link" href="/tickets-per-agent/index.html?v=2&month=2026-03" target="_blank" rel="noopener noreferrer">
             Latest month view
             <span class="pill">open</span>
           </a>
@@ -143,8 +143,19 @@
           </a>
         </div>
       </article>
+
+      <article class="card">
+        <h2>Ticket Routing</h2>
+        <p class="meta">Which specialist group should handle tickets resolved by front-line (SMC, Onsite)?</p>
+        <div class="links">
+          <a class="link" href="/ticket-routing/index.html" target="_blank" rel="noopener noreferrer">
+            Open Ticket Routing
+            <span class="pill">open</span>
+          </a>
+        </div>
+      </article>
     </section>
   </main>
-  <script src="../shared/nav.js"></script>
+  <script>(function(){var s=document.createElement('script');s.src='/shared/nav.js?_='+Date.now();document.body.appendChild(s);})()</script>
 </body>
 </html>

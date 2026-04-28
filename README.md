@@ -36,6 +36,7 @@ Web application for IT Service Management analytics, deployed on Azure Web App.
 - `serving/srf-axsa-api/` — Backend FastAPI (Python, uvicorn) + cliente Databricks SQL
 - `presentation/ticket-lifecycle/` — Frontend estatico (HTML, JS, CSS) con dashboard de Ticket Lifecycle
 - `presentation/score-engine/` — Frontend estatico (HTML, JS, CSS) con dashboard de Resolution Score Engine
+- `presentation/ticket-routing/` — Frontend estatico (HTML, JS, CSS) con dashboard de Ticket Routing Analysis
 - `presentation/home/` — Pagina Home con enlaces a todos los dashboards
 - `presentation/shared/` — Navegacion global compartida (nav.js, nav.css)
 
@@ -165,5 +166,74 @@ El conteo de tickets recibidos por grupo se calcula cruzando la tabla de tickets
 - `presentation/score-engine/styles.css` — Estilos del Score Engine.
 - `presentation/ticket-lifecycle/index.html` — Estructura HTML de la tabla.
 - `presentation/ticket-lifecycle/styles.css` — Estilos (barras de velocidad, badges de confianza, flechas de tendencia).
+
+---
+
+## Ticket Routing Analysis
+
+Dashboard que analiza, para cada grupo front-line (SMC, Onsite Baden, Onsite Beznau, Onsite ES), **que grupo especialista habria resuelto sus tickets si ellos no lo hubieran hecho**.
+
+### Que responde
+
+> "Si los grupos de primera linea no resolvieran estos tickets, a que grupo especialista deberian enviarse?"
+
+### Grupos front-line (estaticos)
+
+- AXPO Service Management Center (SMC)
+- AXPO Onsite Support CH - Baden
+- AXPO Onsite Support CH - Beznau
+- AXPO Onsite Support ES
+
+### Metodos de prediccion (por prioridad)
+
+El sistema usa 3 estrategias para predecir el grupo especialista de cada ticket, aplicadas en orden de prioridad:
+
+| Prioridad | Metodo | Confianza | Descripcion |
+|-----------|--------|-----------|-------------|
+| 1 | **Escalation** | 95% | Si el ticket fue escalado a otro grupo (via tabla `activity`), ese grupo es la respuesta. Es un dato real, no una prediccion. |
+| 2 | **Description (TF-IDF)** | 50-85% | Analisis de texto del summary + description del ticket. Entrena un modelo TF-IDF con 8000 tickets historicos resueltos por especialistas y busca los mas similares. La confianza depende del margen entre el mejor y segundo match. |
+| 3 | **IT Service mapping** | 35-80% | Mapeo estadistico: para cada `it_service`, mira que grupo especialista resolvio mas tickets de ese servicio historicamente. Requiere minimo 3 tickets de evidencia. La confianza depende de la dominancia del grupo ganador. |
+
+### Cross-validacion
+
+Cuando un ticket no tiene escalacion, se calculan ambas predicciones (description + it_service):
+- Si ambos metodos coinciden en el mismo grupo → la confianza se incrementa hasta 92%.
+- Si no coinciden → se usa el de mayor confianza.
+- Si solo uno tiene resultado → se usa ese.
+
+### Whitelist de grupos
+
+Se usa una whitelist de 136 grupos validos de asignacion (cargada dinamicamente desde Databricks). Solo se sugieren grupos que existen en esta whitelist.
+
+### Dashboard
+
+- Selector de mes (uno a la vez).
+- Una seccion por cada grupo front-line.
+- Barras horizontales por grupo especialista sugerido, ordenadas por numero de tickets.
+- Cada barra muestra tags del metodo usado (esc/desc/svc) y un **badge de confianza** con color:
+  - Verde (≥80%): alta confianza.
+  - Amarillo (60-79%): confianza media.
+  - Rojo (<60%): baja confianza.
+- Resumen con totales y desglose por metodo de prediccion.
+
+### Endpoint
+
+```
+GET /api/ticket-lifecycle/routing-analysis?months=2026-03
+```
+
+Responde con:
+- `summary`: totales, tickets clasificados, desglose por metodo.
+- `resolvers`: los 4 grupos front-line con sus totales.
+- `resolverRouting[].suggestedOwners[]`: para cada grupo front-line, lista de owners sugeridos con tickets, confianza y desglose de metodos.
+
+### Archivos involucrados
+
+- `serving/srf-axsa-api/databricks_client.py` — Metodo `_fetch_ticket_routing()` con queries SQL, TF-IDF, mapeo por it_service y cross-validacion.
+- `serving/srf-axsa-api/app.py` — Endpoint `GET /api/ticket-lifecycle/routing-analysis?months=...`
+- `presentation/ticket-routing/app.js` — Logica del frontend (barras, tags de metodo, badges de confianza).
+- `presentation/ticket-routing/index.html` — Pagina standalone del Ticket Routing.
+- `presentation/ticket-routing/styles.css` — Estilos (barras, badges de confianza verde/amarillo/rojo).
+- `presentation/shared/nav.js` — Navegacion global (incluye enlace a Ticket Routing).
 
 

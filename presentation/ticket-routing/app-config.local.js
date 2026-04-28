@@ -13,6 +13,6 @@
 
   var apiBase = (window.APP_CONFIG.apiBase || '').trim();
   if (!apiBase || /^%%.+%%$/.test(apiBase)) {
-    window.APP_CONFIG.apiBase = 'http://127.0.0.1:8001';
+    window.APP_CONFIG.apiBase = 'http://127.0.0.1:8002';
   }
 })();

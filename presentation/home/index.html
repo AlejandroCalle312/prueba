@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SRF-AXSA - Home</title>
+  <title>SRF-AXSA</title>
   <link rel="stylesheet" href="/shared/nav.css?v=2" />
   <style>
     :root {
@@ -83,20 +83,20 @@
 <body>
   <main class="page">
     <section class="hero">
-      <h1>Home</h1>
-      <p>Quick hub to move between dashboards.</p>
+      <h1>SRF-AXSA</h1>
+      <p>Dashboards built on Databricks data from JIRA Service Management. Incident volume, agent workload, resolution times, routing patterns, and priority auditing.</p>
     </section>
 
     <section class="grid">
       <article class="card">
-        <h2>Tickets by Hour</h2>
-        <p class="meta">Hourly dashboard with month and assignment group filters.</p>
+        <h2>Service Demand Patterns</h2>
+        <p class="meta">When are incidents created? Identify peak demand hours and compare patterns across months.</p>
         <div class="links">
-          <a class="link" href="/tickets-by-hour/tickets-by-hour.html?v=2" target="_blank" rel="noopener noreferrer">
-            Open Tickets by Hour
+          <a class="link" href="/tickets-by-hour/tickets-by-hour.html?v=2">
+            Open Service Demand Patterns
             <span class="pill">open</span>
           </a>
-          <a class="link" href="/tickets-by-hour/tickets-by-hour.html?v=2&months=2026-02&assignmentGroup=AXPO+Service+Management+Center" target="_blank" rel="noopener noreferrer">
+          <a class="link" href="/tickets-by-hour/tickets-by-hour.html?v=2&months=2026-02&assignmentGroup=AXPO+Service+Management+Center">
             View with current filters
             <span class="pill">open</span>
           </a>
@@ -104,14 +104,14 @@
       </article>
 
       <article class="card">
-        <h2>Tickets per Agent</h2>
-        <p class="meta">Monthly dashboard by agent for Onsite Baden.</p>
+        <h2>Agent Workload & SLA</h2>
+        <p class="meta">How many tickets does each agent handle? Status breakdown and SLA compliance.</p>
         <div class="links">
-          <a class="link" href="/tickets-per-agent/index.html?v=2" target="_blank" rel="noopener noreferrer">
-            Open on localhost:3000
+          <a class="link" href="/tickets-per-agent/index.html?v=2">
+            Open Agent Workload & SLA
             <span class="pill">open</span>
           </a>
-          <a class="link" href="/tickets-per-agent/index.html?v=2&month=2026-03" target="_blank" rel="noopener noreferrer">
+          <a class="link" href="/tickets-per-agent/index.html?v=2&month=2026-03">
             Latest month view
             <span class="pill">open</span>
           </a>
@@ -119,38 +119,71 @@
       </article>
 
       <article class="card">
-        <h2>Ticket Lifecycle</h2>
-        <p class="meta">Lifecycle time analysis with assignment-group segmentation.</p>
+        <h2>Resolution Timeline</h2>
+        <p class="meta">How long does each incident stay open? Full journey from creation to closure, with SLA tracking.</p>
         <div class="links">
-          <a class="link" href="/ticket-lifecycle/index.html" target="_blank" rel="noopener noreferrer">
-            Open Ticket Lifecycle
+          <a class="link" href="/ticket-lifecycle/index.html">
+            Open Resolution Timeline
             <span class="pill">open</span>
           </a>
-          <a class="link" href="/ticket-lifecycle/index.html" target="_blank" rel="noopener noreferrer">
-            Latest month and default SMC group
-            <span class="pill">open</span>
-          </a>
-        </div>
-      </article>
-
-      <article class="card">
-        <h2>Resolution Score Engine</h2>
-        <p class="meta">Forecast based on resolved ticket ownership, speed, and volume.</p>
-        <div class="links">
-          <a class="link" href="/score-engine/index.html" target="_blank" rel="noopener noreferrer">
-            Open Score Engine
+          <a class="link" href="/ticket-lifecycle/index.html">
+            Latest month view
             <span class="pill">open</span>
           </a>
         </div>
       </article>
 
       <article class="card">
-        <h2>Ticket Routing</h2>
-        <p class="meta">Which specialist group should handle tickets resolved by front-line (SMC, Onsite)?</p>
+        <h2>Team Performance Forecast</h2>
+        <p class="meta">Which groups resolve the most SMC-assigned incidents, how fast, and what's the forecast for next month?</p>
         <div class="links">
-          <a class="link" href="/ticket-routing/index.html" target="_blank" rel="noopener noreferrer">
-            Open Ticket Routing
+          <a class="link" href="/score-engine/index.html">
+            Open Team Performance Forecast
             <span class="pill">open</span>
+          </a>
+        </div>
+      </article>
+
+      <article class="card">
+        <h2>Escalation Intelligence</h2>
+        <p class="meta">If front-line teams stopped resolving certain tickets, which specialist group should take over?</p>
+        <div class="links">
+          <a class="link" href="/ticket-routing/index.html">
+            Open Escalation Intelligence
+            <span class="pill">open</span>
+          </a>
+        </div>
+      </article>
+
+      <article class="card">
+        <h2>Priority Audit</h2>
+        <p class="meta">How many P1/P2 tickets exist and which ones may be miscategorized based on SLA resolution times?</p>
+        <div class="links">
+          <a class="link" href="/priority-audit/index.html">
+            Open Priority Audit
+            <span class="pill">new</span>
+          </a>
+        </div>
+      </article>
+
+      <article class="card">
+        <h2>Reassignment Ratio</h2>
+        <p class="meta">How often are tickets reassigned between groups? Track reassignment patterns and identify routing inefficiencies.</p>
+        <div class="links">
+          <a class="link" href="/reassignment-ratio/index.html">
+            Open Reassignment Ratio
+            <span class="pill">new</span>
+          </a>
+        </div>
+      </article>
+
+      <article class="card">
+        <h2>Tickets per Language</h2>
+        <p class="meta">What languages are tickets created in? Volume distribution and trends by language across months.</p>
+        <div class="links">
+          <a class="link" href="/tickets-per-language/index.html">
+            Open Tickets per Language
+            <span class="pill">new</span>
           </a>
         </div>
       </article>

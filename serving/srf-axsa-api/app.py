@@ -507,6 +507,128 @@ async def ticket_routing_analysis(
     return JSONResponse(content=data)
 
 
+@app.get("/api/priority-audit", tags=["tickets"])
+async def priority_audit(
+    months: Annotated[
+        str | None,
+        Query(
+            description="Comma-separated YYYY-MM values for month filter.",
+            example="2026-04,2026-03",
+        ),
+    ] = None,
+) -> JSONResponse:
+    """Return P1/P2 ticket counts and flag tickets that may be miscategorized."""
+    parsed_months = _parse_months(months)
+    client: DatabricksClient = get_client()
+    try:
+        data = client.get_priority_audit(parsed_months)
+    except Exception as exc:
+        logger.error("priority-audit query failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail="Upstream data source error.") from exc
+    return JSONResponse(content=data)
+
+
+# ── Reassignment Ratio ────────────────────────────────────────────────────────
+
+
+@app.get("/api/reassignment-ratio/months", tags=["reassignment-ratio"])
+async def reassignment_ratio_months() -> JSONResponse:
+    """Return available months for the reassignment ratio view."""
+    client: DatabricksClient = get_client()
+    try:
+        data = client.get_reassignment_ratio_months()
+    except Exception as exc:
+        logger.error("reassignment-ratio months query failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail="Upstream data source error.") from exc
+    return JSONResponse(content=data)
+
+
+@app.get("/api/reassignment-ratio/assignment-groups", tags=["reassignment-ratio"])
+async def reassignment_ratio_assignment_groups() -> JSONResponse:
+    """Return assignment groups available for the reassignment ratio view."""
+    client: DatabricksClient = get_client()
+    try:
+        data = client.get_reassignment_ratio_assignment_groups()
+    except Exception as exc:
+        logger.error("reassignment-ratio assignment-groups query failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail="Upstream data source error.") from exc
+    return JSONResponse(content=data)
+
+
+@app.get("/api/reassignment-ratio", tags=["reassignment-ratio"])
+async def reassignment_ratio(
+    months: Annotated[
+        str | None,
+        Query(
+            description="Comma-separated YYYY-MM values for month filter.",
+            example="2026-03,2026-02",
+        ),
+    ] = None,
+    assignment_group: Annotated[
+        str | None,
+        Query(
+            alias="assignmentGroup",
+            description="Optional assignment group exact match filter.",
+            example="AXPO Service Management Center",
+        ),
+    ] = None,
+) -> JSONResponse:
+    """Return reassignment ratio KPI (>3) plus selected-group vs overall comparison."""
+    parsed_months = _parse_months(months)
+    client: DatabricksClient = get_client()
+    try:
+        data = client.get_reassignment_ratio(parsed_months or [], assignment_group)
+    except Exception as exc:
+        logger.error("reassignment-ratio query failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail="Upstream data source error.") from exc
+    return JSONResponse(content=data)
+
+
+# ── Tickets per Language ──────────────────────────────────────────────────────
+
+
+@app.get("/api/tickets-per-language/months", tags=["tickets-per-language"])
+async def tickets_per_language_months() -> JSONResponse:
+    """Return available months for the tickets per language view."""
+    client: DatabricksClient = get_client()
+    try:
+        data = client.get_tickets_per_language_months()
+    except Exception as exc:
+        logger.error("tickets-per-language months query failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail="Upstream data source error.") from exc
+    return JSONResponse(content=data)
+
+
+@app.get("/api/tickets-per-language", tags=["tickets-per-language"])
+async def tickets_per_language(
+    months: Annotated[
+        str | None,
+        Query(
+            description="Comma-separated YYYY-MM values for month filter.",
+            example="2026-04,2026-03",
+        ),
+    ] = None,
+    detail_limit: Annotated[
+        int,
+        Query(
+            alias="detailLimit",
+            ge=1,
+            le=10000,
+            description="Maximum detail rows to return.",
+        ),
+    ] = 5000,
+) -> JSONResponse:
+    """Return language distribution of tickets with detection heuristics."""
+    parsed_months = _parse_months(months)
+    client: DatabricksClient = get_client()
+    try:
+        data = client.get_tickets_per_language(parsed_months or [], detail_limit)
+    except Exception as exc:
+        logger.error("tickets-per-language query failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail="Upstream data source error.") from exc
+    return JSONResponse(content=data)
+
+
 @app.post("/api/cache/invalidate", tags=["ops"])
 async def invalidate_cache(
     x_cache_token: Annotated[

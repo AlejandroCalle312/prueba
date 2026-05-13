@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reassignment Ratio</title>
+  <link rel="stylesheet" href="../shared/nav.css?v=20260325-rr1" />
+  <link rel="stylesheet" href="styles.css?v=20260325-rr2" />
+  <script>
+    window.APP_CONFIG = { apiBase: '%%API_BASE_URL%%' };
+  </script>
+  <script src="app-config.local.js"></script>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div>
+        <h1>Reassignment Ratio &gt; 3</h1>
+        <p>Ratio formula: tickets with reassignment count greater than 3 divided by tickets overall.</p>
+      </div>
+      <div class="hero-pills">
+        <div id="scope-pill" class="pill">Scope: --</div>
+        <div id="group-pill" class="pill">Group: All assignment groups</div>
+      </div>
+    </header>
+
+    <section class="filters">
+      <button id="bring-data-btn" type="button" class="btn btn-primary">Bring Data</button>
+      <button id="clear-filters-btn" type="button" class="btn btn-secondary">Clear all selections</button>
+      <button id="export-pdf-btn" type="button" class="btn btn-secondary">Export PDF</button>
+
+      <div class="filter">
+        <label>Month</label>
+        <div class="multi-dropdown">
+          <button id="month-filter-toggle" type="button" class="multi-dropdown-toggle" aria-haspopup="true" aria-expanded="false">
+            <span id="month-filter-summary">All months</span>
+            <span aria-hidden="true">v</span>
+          </button>
+          <div id="month-filter-list" class="multi-dropdown-menu" hidden></div>
+        </div>
+      </div>
+
+      <div class="filter">
+        <label>Assignment Group</label>
+        <div class="single-dropdown">
+          <button id="group-filter-toggle" type="button" class="multi-dropdown-toggle" aria-haspopup="true" aria-expanded="false">
+            <span id="group-filter-summary">All assignment groups</span>
+            <span aria-hidden="true">v</span>
+          </button>
+          <div id="group-filter-list" class="multi-dropdown-menu" hidden></div>
+        </div>
+      </div>
+    </section>
+
+    <p id="state" class="state">Ready. Select filters and click Bring Data.</p>
+
+    <section class="kpi-grid">
+      <article class="card gauge-card">
+        <h3>Reassignment Ratio &gt; 3</h3>
+        <div class="gauge-wrap"><canvas id="ratio-gauge"></canvas></div>
+      </article>
+
+      <article class="card metric-card">
+        <h3>Reassignments &gt; 3</h3>
+        <strong id="gt3-value">0</strong>
+      </article>
+
+      <article class="card metric-card">
+        <h3>Tickets overall</h3>
+        <strong id="overall-value">0</strong>
+      </article>
+
+      <article class="card compare-card">
+        <h3>Selected Group vs General</h3>
+        <p id="selected-ratio" class="compare-main">Selected: 0.00%</p>
+        <p id="overall-ratio" class="compare-sub">General: 0.00%</p>
+        <p id="delta-ratio" class="compare-delta">Delta: 0.00 pp</p>
+      </article>
+    </section>
+
+    <section class="viz-grid">
+      <article class="card">
+        <h3>Monthly trend (selected vs general)</h3>
+        <div class="chart-wrap"><canvas id="monthly-chart"></canvas></div>
+      </article>
+    </section>
+
+    <section class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Month</th>
+            <th>Selected ratio</th>
+            <th>General ratio</th>
+            <th>Selected &gt;3</th>
+            <th>Selected total</th>
+            <th>General &gt;3</th>
+            <th>General total</th>
+          </tr>
+        </thead>
+        <tbody id="detail-body"></tbody>
+      </table>
+    </section>
+
+    <section class="table-wrap breakdown-wrap">
+      <div id="breakdown-summary" class="breakdown-summary">Reassignment breakdown (&gt;3): no data.</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Reassignments</th>
+            <th>Tickets</th>
+          </tr>
+        </thead>
+        <tbody id="breakdown-body"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="js/dashboard.js?v=20260325-rr4"></script>
+  <script src="../shared/nav.js?v=20260325-nav3"></script>
+</body>
+</html>

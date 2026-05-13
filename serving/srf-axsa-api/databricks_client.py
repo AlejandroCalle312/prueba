@@ -140,6 +140,9 @@ class DatabricksClient:
         self._resolved_activity_author_column: str | None = None
         self._resolved_activity_visibility_column: str | None = None
         self._resolved_activity_updated_column: str | None = None
+        self._resolved_description_column: str | None = None
+        self._resolved_smc_assignments_column: str | None = None
+        self._resolved_smc_reassignment_column: str | None = None
 
     @staticmethod
     def _as_datetime(value: Any) -> datetime | None:
@@ -530,6 +533,51 @@ class DatabricksClient:
             "Could not resolve issue type column in source table. "
             "Set DATABRICKS_ISSUE_TYPE_COLUMN to a valid column name."
         ) from last_exc
+
+    def _get_description_column(self) -> str:
+        if self._resolved_description_column:
+            return self._resolved_description_column
+        self._resolved_description_column = self._resolve_first_existing_column(
+            ["description", "translated_description", "title", "translated_title"],
+            "description",
+            required=True,
+        )
+        return self._resolved_description_column
+
+    def _get_smc_assignments_column(self) -> str:
+        if self._resolved_smc_assignments_column:
+            return self._resolved_smc_assignments_column
+        self._resolved_smc_assignments_column = self._resolve_first_existing_column(
+            ["smc_assignments"],
+            "smc assignments",
+            required=True,
+        )
+        return self._resolved_smc_assignments_column
+
+    def _get_smc_reassignment_column(self) -> str:
+        if self._resolved_smc_reassignment_column:
+            return self._resolved_smc_reassignment_column
+        self._resolved_smc_reassignment_column = self._resolve_first_existing_column(
+            ["smc_reassignment", "smc_reassignments", "smc_assignments"],
+            "smc reassignment",
+            required=True,
+        )
+        return self._resolved_smc_reassignment_column
+
+    def _append_it_hub_filter(self, where_parts: list[str], params: list[Any]) -> None:
+        project_column = self._get_project_column()
+        project_key_like = f"{_ONSITE_PROJECT_KEY_PREFIX.upper()}%"
+        if project_column:
+            where_parts.append(
+                "(LOWER(TRIM({project_col})) = LOWER(TRIM(?)) OR UPPER({key_col}) LIKE ?)".format(
+                    project_col=project_column,
+                    key_col=_TICKET_KEY_COLUMN,
+                )
+            )
+            params.extend([_ONSITE_PROJECT_NAME, project_key_like])
+            return
+        where_parts.append(f"UPPER({_TICKET_KEY_COLUMN}) LIKE ?")
+        params.append(project_key_like)
 
     def _append_incident_filter(self, where_parts: list[str], params: list[Any]) -> None:
         issue_type_col = self._get_issue_type_column()
@@ -1582,13 +1630,20 @@ class DatabricksClient:
         selected_months = sorted([m for m in (months or []) if m in month_totals_history])
         forecast_base_month = selected_months[-1] if selected_months else (sorted_history_months[-1] if sorted_history_months else "")
         history_months_for_regression = [m for m in sorted_history_months if m <= forecast_base_month] if forecast_base_month else sorted_history_months
+
+        # Use only the last 3 months for regression so predictions stay close
+        # to recent reality. A 6-month window still produced ~10pt errors for
+        # months before Dec 2025 due to structural shifts in share distribution.
+        _FORECAST_WINDOW = 3
+        regression_months = history_months_for_regression[-_FORECAST_WINDOW:]
+
         forecast = []
         for group in scored_groups:
             group_name = group["assignmentGroup"]
             group_history = group_month_history.get(group_name, {})
             shares_history = [
                 round(group_history.get(m, 0) / max(month_totals_history.get(m, 1), 1) * 100, 1)
-                for m in history_months_for_regression
+                for m in regression_months
             ]
 
             sample_size = len(shares_history)
@@ -1616,9 +1671,9 @@ class DatabricksClient:
                 elif slope < -0.5:
                     trend_dir = "down"
 
-            if sample_size >= 6:
+            if sample_size >= 3:
                 confidence = "high"
-            elif sample_size >= 3:
+            elif sample_size >= 2:
                 confidence = "medium"
             else:
                 confidence = "low"
@@ -1908,35 +1963,20 @@ class DatabricksClient:
         assignment_group: str | None = None,
     ) -> dict:
         cache_key = (
-            "onsite_baden::month={month}::assignee={assignee}::status={status}::group={group}"
+            "tickets_per_agent::month={month}::assignee={assignee}::status={status}::group={group}"
         ).format(
             month=(month or "__all__").strip().lower(),
             assignee=(assignee or "__all__").strip().lower(),
             status=(status or "__all__").strip().lower(),
             group=(assignment_group or "__all__").strip().lower(),
         )
-        payload = self._cached(
+        return self._cached(
             cache_key,
             lambda: self._fetch_tickets_per_agent(
                 month,
                 assignee,
                 status,
                 assignment_group,
-                strict_filters=True,
-            ),
-        )
-        if int(payload.get("summary", {}).get("total_tickets", 0)) > 0:
-            return payload
-
-        fallback_cache_key = cache_key + "::fallback"
-        return self._cached(
-            fallback_cache_key,
-            lambda: self._fetch_tickets_per_agent(
-                month,
-                assignee,
-                status,
-                assignment_group,
-                strict_filters=False,
             ),
         )
 
@@ -1946,11 +1986,8 @@ class DatabricksClient:
         assignee: str | None = None,
         status: str | None = None,
         assignment_group: str | None = None,
-        strict_filters: bool = True,
     ) -> dict:
-        issue_type_column = self._get_issue_type_column()
         assignment_group_column = self._get_assignment_group_column()
-        project_column = self._get_project_column()
         assignee_column = self._get_assignee_column()
         status_column = self._get_status_column()
         priority_column = self._get_priority_column()
@@ -1962,31 +1999,11 @@ class DatabricksClient:
         ]
         params: list[Any] = []
 
+        self._append_incident_filter(where_parts, params)
+
         if assignment_group and assignment_group.strip():
             where_parts.append(f"LOWER(TRIM({assignment_group_column})) = LOWER(TRIM(?))")
             params.append(assignment_group.strip())
-
-        if strict_filters:
-            project_key_like = f"{_ONSITE_PROJECT_KEY_PREFIX.upper()}%"
-            if project_column:
-                where_parts.append(
-                    "(LOWER(TRIM({project_col})) = LOWER(TRIM(?)) OR UPPER({key_col}) LIKE ?)".format(
-                        project_col=project_column,
-                        key_col=_TICKET_KEY_COLUMN,
-                    )
-                )
-                params.extend([_ONSITE_PROJECT_NAME, project_key_like])
-            else:
-                where_parts.append(f"UPPER({_TICKET_KEY_COLUMN}) LIKE ?")
-                params.append(project_key_like)
-
-            issue_like_clauses: list[str] = []
-            for issue_type in _ONSITE_ISSUE_TYPES:
-                issue_like_clauses.append(f"LOWER({issue_type_column}) LIKE ?")
-                params.append(f"%{issue_type.lower()}%")
-            if issue_like_clauses:
-                where_parts.append(f"({' OR '.join(issue_like_clauses)})")
-
         if month:
             where_parts.append(f"DATE_FORMAT({local_created_expr}, 'yyyy-MM') = ?")
             params.append(month.strip())
@@ -2063,7 +2080,7 @@ class DatabricksClient:
                 "total_tickets": total_tickets,
                 "total_sla_breach": total_sla_breach,
                 "sla_metric_available": sla_breach_column is not None,
-                "scope": "strict" if strict_filters else "assignment_group_fallback",
+                "scope": "incidents",
                 "unit": "tickets",
                 "aggregation_grain": "unique_ticket_key",
                 "reportingTimezone": self._reporting_timezone(),
@@ -2610,6 +2627,63 @@ class DatabricksClient:
                 "topOwners": owners,
             })
 
+        # ── 10) Actual arrivals: tickets actually assigned to each group ─────
+        # For every group that appears in ownerRanking, count how many tickets
+        # actually had that group as their final assignment_group (resolved there).
+        actual_arrivals: dict[str, int] = {}
+        actual_arrivals_monthly: dict[str, dict[str, int]] = {}
+        predicted_monthly: dict[str, dict[str, int]] = {}
+
+        # Build predicted monthly from front_rows + routing decisions
+        for r in front_rows:
+            tid = str(r["ticket_id"])
+            resolver = str(r["resolver"])
+            # Determine which month this ticket belongs to
+            # We don't have created_in in front_rows, but we can re-derive from activity data
+            # Instead, track predicted owner per ticket from above logic
+            pass
+
+        # Query actual tickets resolved by each specialist group in the same months
+        owner_groups = [g["group"] for g in owner_ranking[:50]]  # top 50 groups
+        if owner_groups:
+            groups_in = ", ".join(
+                f"'{g.replace(chr(39), chr(39)+chr(39))}'" for g in owner_groups
+            )
+            actual_sql = f"""
+                SELECT
+                    COALESCE(NULLIF(TRIM({assignment_group_column}), ''), 'Unknown') AS grp,
+                    DATE_FORMAT({local_created_expr}, 'yyyy-MM') AS month,
+                    COUNT(*) AS cnt
+                FROM {_TICKETS_TABLE}
+                WHERE created_in IS NOT NULL
+                  AND {score_type_filter}
+                  AND TRIM({assignment_group_column}) IN ({groups_in})
+                  {month_filter}
+                GROUP BY grp, month
+                ORDER BY grp, month
+            """
+            try:
+                actual_rows = self._execute(actual_sql)
+                for row in actual_rows:
+                    grp = str(row["grp"]).strip()
+                    m = str(row.get("month", ""))
+                    cnt = int(row.get("cnt", 0))
+                    actual_arrivals[grp] = actual_arrivals.get(grp, 0) + cnt
+                    actual_arrivals_monthly.setdefault(grp, {})[m] = cnt
+            except Exception:
+                logger.warning("Actual arrivals query failed; skipping")
+
+        # Enrich ownerRanking with actual arrival data
+        owner_ranking_enriched = []
+        for o in owner_ranking:
+            grp = o["group"]
+            owner_ranking_enriched.append({
+                **o,
+                "actualTickets": actual_arrivals.get(grp, 0),
+                "monthlyPredicted": actual_arrivals_monthly.get(grp, {}),  # placeholder
+                "monthlyActual": actual_arrivals_monthly.get(grp, {}),
+            })
+
         return {
             "summary": {
                 "totalFrontLineResolved": grand_total,
@@ -2622,8 +2696,625 @@ class DatabricksClient:
             },
             "resolvers": resolver_list,
             "resolverRouting": resolver_routing,
-            "ownerRanking": owner_ranking,
+            "ownerRanking": owner_ranking_enriched,
             "routingDetails": routing_details[:limit],
+        }
+
+    # ── Priority Audit ──────────────────────────────────────────────────────────
+
+    def get_priority_audit(self, months: list[str] | None = None) -> dict:
+        """Return P1/P2 ticket analysis with misclassification flags."""
+        cache_key = f"priority_audit:{'|'.join(sorted(months)) if months else 'all'}"
+        return self._cached(cache_key, lambda: self._fetch_priority_audit(months))
+
+    def _fetch_priority_audit(self, months: list[str] | None) -> dict:
+        priority_column = self._get_priority_column()
+        status_column = self._get_status_column()
+        assignment_group_column = self._get_assignment_group_column()
+        issue_type_column = self._get_issue_type_column()
+        local_created_expr = f"FROM_UTC_TIMESTAMP(created_in, '{_REPORTING_TIMEZONE}')"
+
+        if not priority_column:
+            return {"error": "No priority column available", "tickets": [], "summary": {}}
+
+        month_filter = ""
+        if months:
+            month_list = ", ".join(f"'{m}'" for m in months)
+            month_filter = f"AND DATE_FORMAT({local_created_expr}, 'yyyy-MM') IN ({month_list})"
+
+        sql = f"""
+            SELECT
+                {_TICKET_KEY_COLUMN} AS ticket_key,
+                {_TICKET_ID_COLUMN} AS ticket_id,
+                COALESCE(NULLIF(TRIM({priority_column}), ''), 'Unknown') AS priority,
+                COALESCE(NULLIF(TRIM({status_column}), ''), 'Unknown') AS status,
+                COALESCE(NULLIF(TRIM({assignment_group_column}), ''), 'Unknown') AS assignment_group,
+                COALESCE(NULLIF(TRIM({issue_type_column}), ''), 'Unknown') AS issue_type,
+                created_in,
+                COALESCE(updated_in, created_in) AS resolved_at,
+                DATE_FORMAT({local_created_expr}, 'yyyy-MM') AS month
+            FROM {_TICKETS_TABLE}
+            WHERE (UPPER({priority_column}) LIKE '%P1%' OR UPPER({priority_column}) LIKE '%P2%')
+                AND LOWER(TRIM({issue_type_column})) LIKE '%incident%'
+                {month_filter}
+            ORDER BY created_in DESC
+        """
+        rows = self._execute(sql)
+
+        # Collect ticket IDs to check activity for IMOD and resolved timestamps
+        ticket_ids = []
+        for row in rows:
+            tid = str(row.get("ticket_id") or "").strip()
+            if tid:
+                ticket_ids.append(tid)
+
+        # Query activity table to find which tickets have IMOD and last resolved timestamp
+        tickets_with_imod: set[str] = set()
+        ticket_last_resolved: dict[str, datetime] = {}
+        if ticket_ids:
+            activity_ticket_col = self._get_activity_ticket_id_column()
+            activity_content_col = self._get_activity_content_column()
+            activity_date_col = self._get_activity_date_column()
+            # Process in batches to avoid overly large IN clauses
+            batch_size = 200
+            for i in range(0, len(ticket_ids), batch_size):
+                batch = ticket_ids[i:i + batch_size]
+                id_placeholders = ", ".join(["?" for _ in batch])
+                # IMOD check
+                imod_sql = f"""
+                    SELECT DISTINCT CAST({activity_ticket_col} AS STRING) AS tid
+                    FROM {_ACTIVITY_TABLE}
+                    WHERE CAST({activity_ticket_col} AS STRING) IN ({id_placeholders})
+                      AND UPPER(COALESCE({activity_content_col}, '')) LIKE '%IMOD%'
+                """
+                imod_rows = self._execute(imod_sql, batch)
+                for arow in imod_rows:
+                    tickets_with_imod.add(str(arow.get("tid") or "").strip())
+
+                # Last resolved timestamp from activity
+                resolved_sql = f"""
+                    SELECT CAST({activity_ticket_col} AS STRING) AS tid,
+                           MAX({activity_date_col}) AS last_resolved
+                    FROM {_ACTIVITY_TABLE}
+                    WHERE CAST({activity_ticket_col} AS STRING) IN ({id_placeholders})
+                      AND LOWER(COALESCE({activity_content_col}, '')) LIKE '%resolved%'
+                    GROUP BY CAST({activity_ticket_col} AS STRING)
+                """
+                resolved_rows = self._execute(resolved_sql, batch)
+                for rrow in resolved_rows:
+                    tid_val = str(rrow.get("tid") or "").strip()
+                    resolved_ts = self._as_datetime(rrow.get("last_resolved"))
+                    if tid_val and resolved_ts:
+                        ticket_last_resolved[tid_val] = resolved_ts
+
+        p1_tickets = []
+        p2_tickets = []
+        p1_suspicious = []
+        p2_suspicious = []
+
+        for row in rows:
+            priority_level = self._parse_priority_level(row.get("priority"))
+            if priority_level not in (1, 2):
+                continue
+
+            created_dt = self._as_datetime(row.get("created_in"))
+            # Use last resolved from activity if available, otherwise fall back to updated_in
+            tid = str(row.get("ticket_id") or "").strip()
+            resolved_dt = ticket_last_resolved.get(tid) or self._as_datetime(row.get("resolved_at"))
+
+            resolution_hours = None
+            if created_dt and resolved_dt and resolved_dt > created_dt:
+                resolution_hours = round((resolved_dt - created_dt).total_seconds() / 3600, 1)
+
+            target_hours = _SLA_TARGET_HOURS.get(priority_level, 6)
+            is_breached = resolution_hours is not None and resolution_hours > target_hours
+
+            # Suspicious = activity does NOT contain IMOD
+            is_suspicious = tid not in tickets_with_imod
+
+            status_val = str(row.get("status") or "").strip().lower()
+            is_closed = "closed" in status_val or "resolved" in status_val
+
+            ticket_data = {
+                "ticketKey": row.get("ticket_key"),
+                "priority": f"P{priority_level}",
+                "status": row.get("status"),
+                "assignmentGroup": row.get("assignment_group"),
+                "issueType": row.get("issue_type"),
+                "createdAt": self._to_utc_iso(created_dt),
+                "resolvedAt": self._to_utc_iso(resolved_dt) if is_closed else None,
+                "resolutionHours": resolution_hours if is_closed else None,
+                "targetHours": target_hours,
+                "isBreached": is_breached if is_closed else None,
+                "isSuspicious": is_suspicious,
+                "isClosed": is_closed,
+                "month": row.get("month"),
+                "jiraUrl": f"{_JIRA_BASE_URL}/{row.get('ticket_key')}",
+            }
+
+            if priority_level == 1:
+                p1_tickets.append(ticket_data)
+                if is_suspicious:
+                    p1_suspicious.append(ticket_data)
+            else:
+                p2_tickets.append(ticket_data)
+                if is_suspicious:
+                    p2_suspicious.append(ticket_data)
+
+        return {
+            "summary": {
+                "p1Total": len(p1_tickets),
+                "p2Total": len(p2_tickets),
+                "p1Closed": sum(1 for t in p1_tickets if t["isClosed"]),
+                "p2Closed": sum(1 for t in p2_tickets if t["isClosed"]),
+                "p1Suspicious": len(p1_suspicious),
+                "p2Suspicious": len(p2_suspicious),
+                "p1SlaBreached": sum(1 for t in p1_tickets if t["isBreached"]),
+                "p2SlaBreached": sum(1 for t in p2_tickets if t["isBreached"]),
+                "p1TargetHours": _SLA_TARGET_HOURS[1],
+                "p2TargetHours": _SLA_TARGET_HOURS[2],
+                "monthsAnalyzed": months if months else "all",
+            },
+            "p1Tickets": p1_tickets,
+            "p2Tickets": p2_tickets,
+            "p1Suspicious": p1_suspicious,
+            "p2Suspicious": p2_suspicious,
+        }
+
+    # ── Tickets per Language ──────────────────────────────────────────────────
+
+    def get_tickets_per_language_months(self) -> list[str]:
+        return self._cached(
+            "__tickets_per_language_months_v4__",
+            self._fetch_tickets_per_language_months,
+        )
+
+    def _fetch_tickets_per_language_months(self) -> list[str]:
+        local_created_expr = f"FROM_UTC_TIMESTAMP(created_in, '{_REPORTING_TIMEZONE}')"
+        smc_assignments_column = self._get_smc_assignments_column()
+        where_parts: list[str] = [
+            "created_in IS NOT NULL",
+            f"COALESCE(TRY_CAST({smc_assignments_column} AS DOUBLE), 0) > 0",
+        ]
+        params: list[Any] = []
+        self._append_it_hub_filter(where_parts, params)
+        self._append_incident_filter(where_parts, params)
+        where_sql = "\n                AND ".join(where_parts)
+
+        sql = f"""
+            SELECT DISTINCT DATE_FORMAT({local_created_expr}, 'yyyy-MM') AS month
+            FROM {_TICKETS_TABLE}
+            WHERE
+                {where_sql}
+            ORDER BY month DESC
+            LIMIT 36
+        """
+        rows = self._execute(sql, params)
+        return [str(row.get("month") or "") for row in rows if row.get("month")]
+
+    def get_tickets_per_language(
+        self,
+        months: list[str] | None = None,
+        detail_limit: int = 5000,
+    ) -> dict[str, Any]:
+        normalised_months = sorted({str(m).strip() for m in (months or []) if str(m).strip()})
+        bounded_limit = max(100, min(int(detail_limit or 5000), 10000))
+        cache_key = "tickets_per_language_v5::months={months}::detail_limit={detail_limit}".format(
+            months=",".join(normalised_months) if normalised_months else "__all__",
+            detail_limit=bounded_limit,
+        )
+        return self._cached(
+            cache_key,
+            lambda: self._fetch_tickets_per_language(normalised_months, bounded_limit),
+        )
+
+    def _fetch_tickets_per_language(self, months: list[str], detail_limit: int) -> dict[str, Any]:
+        description_column = self._get_description_column()
+        smc_assignments_column = self._get_smc_assignments_column()
+        timeline_column = self._get_timeline_event_column()
+        status_column = self._get_status_column()
+        local_created_expr = f"FROM_UTC_TIMESTAMP(created_in, '{_REPORTING_TIMEZONE}')"
+
+        where_parts: list[str] = [
+            "created_in IS NOT NULL",
+            f"COALESCE(TRY_CAST({smc_assignments_column} AS DOUBLE), 0) > 0",
+        ]
+        params: list[Any] = []
+        self._append_it_hub_filter(where_parts, params)
+        self._append_incident_filter(where_parts, params)
+
+        if months:
+            placeholders = ", ".join(["?" for _ in months])
+            where_parts.append(f"DATE_FORMAT({local_created_expr}, 'yyyy-MM') IN ({placeholders})")
+            params.extend(months)
+
+        where_sql = "\n                AND ".join(where_parts)
+        status_select = f"{status_column} AS status" if status_column else "'Unknown' AS status"
+        sql = f"""
+            WITH scoped_raw AS (
+                SELECT
+                    {_TICKET_ID_COLUMN} AS ticket_id,
+                    {_TICKET_KEY_COLUMN} AS ticket_key,
+                    DATE_FORMAT({local_created_expr}, 'yyyy-MM') AS month,
+                    COALESCE(CAST({description_column} AS STRING), '') AS description_raw,
+                    LOWER(COALESCE(CAST({description_column} AS STRING), '')) AS description_lc,
+                    {status_select},
+                    ROW_NUMBER() OVER (
+                        PARTITION BY {_TICKET_KEY_COLUMN}
+                        ORDER BY {timeline_column} DESC
+                    ) AS rn
+                FROM {_TICKETS_TABLE}
+                WHERE
+                    {where_sql}
+            ),
+            scoped AS (
+                SELECT ticket_id, ticket_key, month, description_raw, description_lc, status
+                FROM scoped_raw
+                WHERE rn = 1
+            ),
+            scored AS (
+                SELECT
+                    ticket_id, month, ticket_key, status, description_raw, description_lc,
+                    (
+                        CASE WHEN description_lc RLIKE '(?i)[äöüß]' THEN 2 ELSE 0 END +
+                        CASE WHEN description_lc RLIKE '(?i)(^|[^a-z0-9_])(und|oder|nicht|kein|keine|ich|wir|sie|der|die|das|ein|eine|mit|fuer|für|bitte|danke|rechnung|störung|stoerung|gerät|geraet|anfrage)([^a-z0-9_]|$)' THEN 1 ELSE 0 END
+                    ) AS de_score,
+                    (
+                        CASE WHEN description_lc RLIKE '(?i)(^|[^a-z0-9_])(the|and|or|not|cannot|unable|issue|request|please|thanks|error|device|laptop|network|password|login|log in|access|update|ticket|service)([^a-z0-9_]|$)' THEN 1 ELSE 0 END
+                    ) AS en_score
+                FROM scoped
+            ),
+            classified AS (
+                SELECT
+                    ticket_id, month, ticket_key, status, description_raw, de_score, en_score,
+                    CASE
+                        WHEN LENGTH(TRIM(description_lc)) = 0 THEN 'Other'
+                        WHEN de_score > en_score THEN 'German'
+                        WHEN en_score > de_score THEN 'English'
+                        WHEN de_score = en_score AND de_score > 0 THEN
+                            CASE
+                                WHEN description_lc RLIKE '(?i)[äöüß]|(^|[^a-z0-9_])(der|die|das|nicht|für|fuer|störung|stoerung)([^a-z0-9_]|$)' THEN 'German'
+                                ELSE 'English'
+                            END
+                        ELSE 'Other'
+                    END AS language
+                FROM scored
+            )
+            SELECT
+                ticket_id, month, ticket_key, language, status, de_score, en_score,
+                TRIM(REPLACE(REPLACE(SUBSTRING(description_raw, 1, 240), '\\n', ' '), '\\r', ' ')) AS description_preview
+            FROM classified
+            ORDER BY month DESC, ticket_key ASC
+        """
+
+        rows = self._execute(sql, params)
+        aggregate_map: dict[tuple[str, str], int] = {}
+        totals_by_language: dict[str, int] = {}
+        totals_by_month: dict[str, int] = {}
+
+        detail_rows: list[dict[str, Any]] = []
+        for row in rows:
+            month = str(row.get("month") or "")
+            language = str(row.get("language") or "Other")
+            key = str(row.get("ticket_key") or "")
+            aggregate_map[(month, language)] = aggregate_map.get((month, language), 0) + 1
+            totals_by_language[language] = totals_by_language.get(language, 0) + 1
+            totals_by_month[month] = totals_by_month.get(month, 0) + 1
+
+            if len(detail_rows) < detail_limit:
+                detail_rows.append({
+                    "ticket_id": str(row.get("ticket_id") or "") or None,
+                    "ticket_key": key,
+                    "ticket_url": f"{_JIRA_BASE_URL}/{key}" if key else None,
+                    "month": month,
+                    "language": language,
+                    "status": str(row.get("status") or "Unknown"),
+                    "de_score": int(row.get("de_score") or 0),
+                    "en_score": int(row.get("en_score") or 0),
+                    "description_preview": str(row.get("description_preview") or ""),
+                })
+
+        payload_rows = [
+            {"month": month, "language": language, "ticket_count": int(count)}
+            for (month, language), count in sorted(
+                aggregate_map.items(), key=lambda item: (item[0][0], item[0][1]), reverse=True,
+            )
+        ]
+
+        opened_unique_tickets = len(rows)
+        language_aggregated_total = sum(totals_by_language.values())
+
+        return {
+            "rows": payload_rows,
+            "details": detail_rows,
+            "summary": {
+                "total_tickets": language_aggregated_total,
+                "totals_by_language": totals_by_language,
+                "totals_by_month": totals_by_month,
+                "scope": "it_hub_incident_smc_assignments_gt_0",
+                "opened_unique_tickets": opened_unique_tickets,
+                "language_aggregated_total": language_aggregated_total,
+                "integrity_opened_vs_aggregated": opened_unique_tickets == language_aggregated_total,
+                "details_returned": len(detail_rows),
+                "details_limit": detail_limit,
+                "reportingTimezone": self._reporting_timezone(),
+            },
+        }
+
+    # ── Reassignment Ratio ────────────────────────────────────────────────────
+
+    def get_reassignment_ratio_months(self) -> list[str]:
+        return self._cached(
+            "__reassignment_ratio_months_v2__",
+            self._fetch_reassignment_ratio_months,
+        )
+
+    def _fetch_reassignment_ratio_months(self) -> list[str]:
+        status_column = self._get_status_column()
+        timeline_column = self._get_timeline_event_column()
+        closed_col = self._get_closed_time_column()
+        resolved_col = self._get_resolved_time_column()
+        smc_assignments_column = self._get_smc_assignments_column()
+        status_filter_sql = self._select_lifecycle_tickets_where_status(status_column)
+
+        close_candidates = [c for c in [closed_col, resolved_col] if c]
+        close_expr = "COALESCE(" + ", ".join(close_candidates) + ")" if close_candidates else timeline_column
+        local_close_expr = f"FROM_UTC_TIMESTAMP({close_expr}, '{_REPORTING_TIMEZONE}')"
+
+        where_parts: list[str] = [
+            "created_in IS NOT NULL",
+            f"{close_expr} IS NOT NULL",
+            status_filter_sql,
+            f"COALESCE(TRY_CAST({smc_assignments_column} AS DOUBLE), 0) > 0",
+        ]
+        params: list[Any] = []
+        self._append_it_hub_filter(where_parts, params)
+        self._append_incident_filter(where_parts, params)
+        where_sql = "\n                AND ".join(where_parts)
+
+        sql = f"""
+            SELECT DISTINCT DATE_FORMAT({local_close_expr}, 'yyyy-MM') AS month
+            FROM {_TICKETS_TABLE}
+            WHERE
+                {where_sql}
+            ORDER BY month DESC
+            LIMIT 36
+        """
+        rows = self._execute(sql, params)
+        return [str(row.get("month") or "") for row in rows if row.get("month")]
+
+    def get_reassignment_ratio_assignment_groups(self) -> list[str]:
+        return self._cached(
+            "__reassignment_ratio_assignment_groups_v2__",
+            self._fetch_reassignment_ratio_assignment_groups,
+        )
+
+    def _fetch_reassignment_ratio_assignment_groups(self) -> list[str]:
+        assignment_group_column = self._get_assignment_group_column()
+        timeline_column = self._get_timeline_event_column()
+        status_column = self._get_status_column()
+        closed_col = self._get_closed_time_column()
+        resolved_col = self._get_resolved_time_column()
+        smc_assignments_column = self._get_smc_assignments_column()
+        status_filter_sql = self._select_lifecycle_tickets_where_status(status_column)
+
+        close_candidates = [c for c in [closed_col, resolved_col] if c]
+        close_expr = "COALESCE(" + ", ".join(close_candidates) + ")" if close_candidates else timeline_column
+
+        where_parts: list[str] = [
+            "created_in IS NOT NULL",
+            f"{close_expr} IS NOT NULL",
+            status_filter_sql,
+            f"COALESCE(TRY_CAST({smc_assignments_column} AS DOUBLE), 0) > 0",
+        ]
+        params: list[Any] = []
+        self._append_it_hub_filter(where_parts, params)
+        self._append_incident_filter(where_parts, params)
+        where_sql = "\n                    AND ".join(where_parts)
+
+        sql = f"""
+            WITH scoped_raw AS (
+                SELECT
+                    {assignment_group_column} AS assignment_group,
+                    {_TICKET_KEY_COLUMN} AS ticket_key,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY {_TICKET_KEY_COLUMN}
+                        ORDER BY {timeline_column} DESC
+                    ) AS rn
+                FROM {_TICKETS_TABLE}
+                WHERE
+                    {where_sql}
+            )
+            SELECT DISTINCT TRIM(CAST(assignment_group AS STRING)) AS assignment_group
+            FROM scoped_raw
+            WHERE rn = 1
+              AND assignment_group IS NOT NULL
+              AND TRIM(CAST(assignment_group AS STRING)) <> ''
+            ORDER BY LOWER(assignment_group) ASC
+        """
+        rows = self._execute(sql, params)
+        return [str(row.get("assignment_group") or "") for row in rows if row.get("assignment_group")]
+
+    def get_reassignment_ratio(
+        self,
+        months: list[str] | None = None,
+        assignment_group: str | None = None,
+    ) -> dict[str, Any]:
+        normalised_months = sorted({str(m).strip() for m in (months or []) if str(m).strip()})
+        selected_group = (assignment_group or "").strip()
+        group_key = selected_group.lower() if selected_group else "__all__"
+        cache_key = "reassignment_ratio_v1::months={months}::group={group}".format(
+            months=",".join(normalised_months) if normalised_months else "__all__",
+            group=group_key,
+        )
+        return self._cached(
+            cache_key,
+            lambda: self._fetch_reassignment_ratio(normalised_months, selected_group),
+        )
+
+    def _fetch_reassignment_ratio(self, months: list[str], assignment_group: str) -> dict[str, Any]:
+        assignment_group_column = self._get_assignment_group_column()
+        smc_assignments_column = self._get_smc_assignments_column()
+        smc_reassignment_column = self._get_smc_reassignment_column()
+        timeline_column = self._get_timeline_event_column()
+        status_column = self._get_status_column()
+        closed_col = self._get_closed_time_column()
+        resolved_col = self._get_resolved_time_column()
+        status_filter_sql = self._select_lifecycle_tickets_where_status(status_column)
+
+        close_candidates = [c for c in [closed_col, resolved_col] if c]
+        close_expr = "COALESCE(" + ", ".join(close_candidates) + ")" if close_candidates else timeline_column
+        local_close_expr = f"FROM_UTC_TIMESTAMP({close_expr}, '{_REPORTING_TIMEZONE}')"
+
+        where_parts: list[str] = [
+            "created_in IS NOT NULL",
+            f"{close_expr} IS NOT NULL",
+            status_filter_sql,
+            f"COALESCE(TRY_CAST({smc_assignments_column} AS DOUBLE), 0) > 0",
+        ]
+        base_params: list[Any] = []
+        self._append_it_hub_filter(where_parts, base_params)
+        self._append_incident_filter(where_parts, base_params)
+        if months:
+            placeholders = ", ".join(["?" for _ in months])
+            where_parts.append(f"DATE_FORMAT({local_close_expr}, 'yyyy-MM') IN ({placeholders})")
+            base_params.extend(months)
+
+        selected_filter_sql = "1 = 1"
+        selected_filter_params_main: list[Any] = []
+        selected_filter_params_breakdown: list[Any] = []
+        if assignment_group:
+            selected_filter_sql = "LOWER(TRIM(assignment_group)) = LOWER(TRIM(?))"
+            selected_filter_params_main = [assignment_group, assignment_group]
+            selected_filter_params_breakdown = [assignment_group]
+
+        where_sql = "\n                    AND ".join(where_parts)
+        sql = f"""
+            WITH scoped_raw AS (
+                SELECT
+                    {_TICKET_KEY_COLUMN} AS ticket_key,
+                    DATE_FORMAT({local_close_expr}, 'yyyy-MM') AS month,
+                    TRIM(COALESCE(CAST({assignment_group_column} AS STRING), '')) AS assignment_group,
+                    COALESCE(TRY_CAST({smc_reassignment_column} AS DOUBLE), 0) AS reassignment_count,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY {_TICKET_KEY_COLUMN}
+                        ORDER BY {timeline_column} DESC
+                    ) AS rn
+                FROM {_TICKETS_TABLE}
+                WHERE
+                    {where_sql}
+            ),
+            scoped AS (
+                SELECT
+                    ticket_key, month,
+                    CASE WHEN assignment_group = '' THEN 'Unknown' ELSE assignment_group END AS assignment_group,
+                    reassignment_count
+                FROM scoped_raw
+                WHERE rn = 1
+            ),
+            monthly AS (
+                SELECT
+                    month,
+                    COUNT(*) AS overall_total,
+                    SUM(CASE WHEN reassignment_count > 3 THEN 1 ELSE 0 END) AS overall_gt3,
+                    SUM(CASE WHEN {selected_filter_sql} THEN 1 ELSE 0 END) AS selected_total,
+                    SUM(CASE WHEN {selected_filter_sql} AND reassignment_count > 3 THEN 1 ELSE 0 END) AS selected_gt3
+                FROM scoped
+                GROUP BY month
+            )
+            SELECT month, overall_total, overall_gt3, selected_total, selected_gt3
+            FROM monthly
+            ORDER BY month DESC
+        """
+
+        rows = self._execute(sql, base_params + selected_filter_params_main)
+
+        breakdown_sql = f"""
+            WITH scoped_raw AS (
+                SELECT
+                    {_TICKET_KEY_COLUMN} AS ticket_key,
+                    TRIM(COALESCE(CAST({assignment_group_column} AS STRING), '')) AS assignment_group,
+                    COALESCE(TRY_CAST({smc_reassignment_column} AS DOUBLE), 0) AS reassignment_count,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY {_TICKET_KEY_COLUMN}
+                        ORDER BY {timeline_column} DESC
+                    ) AS rn
+                FROM {_TICKETS_TABLE}
+                WHERE
+                    {where_sql}
+            ),
+            scoped AS (
+                SELECT
+                    ticket_key,
+                    CASE WHEN assignment_group = '' THEN 'Unknown' ELSE assignment_group END AS assignment_group,
+                    reassignment_count
+                FROM scoped_raw
+                WHERE rn = 1
+            )
+            SELECT
+                CAST(reassignment_count AS INT) AS reassignment_count,
+                COUNT(*) AS ticket_count
+            FROM scoped
+            WHERE reassignment_count > 3
+              AND {selected_filter_sql}
+            GROUP BY CAST(reassignment_count AS INT)
+            ORDER BY reassignment_count ASC
+        """
+        breakdown_rows = self._execute(breakdown_sql, base_params + selected_filter_params_breakdown)
+
+        reassignment_breakdown = [
+            {"reassignment_count": int(row.get("reassignment_count") or 0), "ticket_count": int(row.get("ticket_count") or 0)}
+            for row in breakdown_rows
+            if int(row.get("reassignment_count") or 0) > 3
+        ]
+        monthly_rows: list[dict[str, Any]] = []
+        overall_total_sum = 0
+        overall_gt3_sum = 0
+        selected_total_sum = 0
+        selected_gt3_sum = 0
+
+        for row in rows:
+            ot = int(row.get("overall_total") or 0)
+            og = int(row.get("overall_gt3") or 0)
+            st = int(row.get("selected_total") or 0)
+            sg = int(row.get("selected_gt3") or 0)
+            overall_total_sum += ot
+            overall_gt3_sum += og
+            selected_total_sum += st
+            selected_gt3_sum += sg
+            monthly_rows.append({
+                "month": str(row.get("month") or ""),
+                "overall_total": ot, "overall_gt3": og,
+                "overall_ratio_pct": round((og / ot * 100.0) if ot > 0 else 0.0, 2),
+                "selected_total": st, "selected_gt3": sg,
+                "selected_ratio_pct": round((sg / st * 100.0) if st > 0 else 0.0, 2),
+            })
+
+        overall_ratio_pct = (overall_gt3_sum / overall_total_sum * 100.0) if overall_total_sum > 0 else 0.0
+        selected_ratio_pct = (selected_gt3_sum / selected_total_sum * 100.0) if selected_total_sum > 0 else 0.0
+
+        return {
+            "monthly": monthly_rows,
+            "reassignment_breakdown": reassignment_breakdown,
+            "summary": {
+                "formula": "reassignment_ratio = tickets_with_reassignments_gt_3 / tickets_overall",
+                "threshold": 3,
+                "selected_group": assignment_group or "All assignment groups",
+                "selected_metrics": {
+                    "tickets_overall": selected_total_sum,
+                    "reassignments_gt_3": selected_gt3_sum,
+                    "reassignment_ratio_pct": round(selected_ratio_pct, 2),
+                },
+                "overall_metrics": {
+                    "tickets_overall": overall_total_sum,
+                    "reassignments_gt_3": overall_gt3_sum,
+                    "reassignment_ratio_pct": round(overall_ratio_pct, 2),
+                },
+                "delta_vs_overall_pct_points": round(selected_ratio_pct - overall_ratio_pct, 2),
+                "scope": "it_hub_incident_smc_assignments_gt_0",
+                "month_anchor": "closed_or_resolved_in",
+                "reportingTimezone": self._reporting_timezone(),
+            },
         }
 
     def invalidate_cache(self) -> None:
